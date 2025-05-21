@@ -2,21 +2,25 @@ import os
 import subprocess
 from snakemake.utils import min_version
 import pandas as pd
-from datetime import datetime 
+import gzip
+from cyvcf2 import VCF
 
-from helpers import check_samples_tsv_file
-from helpers import create_df_of_seq_length_distributions
+#########################
+## Helper functions
+##########################
 
-###############################
-# OS and related configurations
-###############################
+def count_variants(vcf_file_path):
+    """
+    Count the number of variants in a VCF file using cyvcf2.
+    """
+    vcf_reader = VCF(vcf_file_path)
+    variant_count = 0
 
-##### set minimum snakemake version #####
-min_version("5.4.3")
+    for variant in vcf_reader:
+        variant_count += 1
 
-# this container defines the underlying OS for each job when using the workflow
-# with --use-conda --use-singularity
-singularity: "docker://continuumio/miniconda3"
+    vcf_reader.close()
+    return variant_count
 
 #########################
 ## Pipeline configuration
@@ -29,140 +33,129 @@ wildcard_constraints:
 # directories
 WORKING_DIR = config["temp_dir"]
 RES_DIR = config["result_dir"]
-CURRENT_TIME = datetime.now().strftime("%Y-%m-%d_%H-%M")  # time when pipeline started (will be used to rename result directory)
+if not os.path.exists(RES_DIR):
+    os.makedirs(RES_DIR)
+if not os.path.exists(WORKING_DIR):
+    os.makedirs(WORKING_DIR)
 
 
-# Samples: verify 
 # get list of samples
-# The first functions verify that the provided sample file 
-samples_df = check_samples_tsv_file(sample_tsv_file = "config/samples.tsv")
+samples_df = pd.read_csv(config["samples"], sep = "\t", index_col = 0)
 SAMPLES = samples_df.index.values.tolist()
 
 # get fastq file
-def get_fastq_file(wildcards):
-    fastq_file = samples_df.loc[wildcards.sample,"fastq"]
-    return fastq_file
-
-# ShortStack parameters
-SHORTSTACK_PARAMS = " ".join(config["shortstack"].values())
-
-######################
-# Local rule execution
-######################
-
-# Some rules are simple jobs which should not be submitted as jobs
-# The following rules will be run locally = on the head node on a HPC cluster.
-
-localrules: all
-localrules: fastp
-localrules: multiqc_report
-localrules: read_length_distribution
-localrules: shortstack
+def get_vcf_file(wildcards):
+    vcf_file = samples_df.loc[wildcards.sample,"vcf"]
+    return vcf_file
 
 ####################
 ## Desired outputs
 ####################
-QC = RES_DIR + "qc/multiqc_report.html"
-
-SEQ_DISTRI = RES_DIR + "seq_length_distribution.tsv"
-
-SHORTSTACK = expand(RES_DIR + "shortstack/{sample}/Results.txt",sample = SAMPLES)
+FILTERED_VCF = expand(RES_DIR + "filtered/{sample}.vcf.gz", sample = SAMPLES)
+SNP_COUNTS= expand(RES_DIR + "counts/{sample}.n_snps.txt", sample = SAMPLES)
+GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.txt", sample = SAMPLES)
 
 rule all:
     input:
-        QC,
-	SEQ_DISTRI,
-	SHORTSTACK
+        FILTERED_VCF, 
+        SNP_COUNTS,
+        GENOTYPES
     message:
-        "All done! Removing intermediate files in {WORKING_DIR}. Adding date and current time to {RES_DIR} folder name"
-    params:
-        new_result_dir_name =  CURRENT_TIME + "_" + RES_DIR
+        "All done!"
     shell:
-        "rm -rf {WORKING_DIR};" # removes unwanted intermediate files
-        "mv {RES_DIR} {params.new_result_dir_name};"
+        "rm -r {WORKING_DIR}/"
 
 
-######################
-## Shortstack analysis
-######################
+########################
+## Original VCF metrics
+#######################
 
-rule shortstack:
+rule count_original_snps:
     input:
-        reads =  RES_DIR + "trimmed/{sample}.trimmed.fastq"
+        vcf = get_vcf_file
     output:
-        RES_DIR + "shortstack/{sample}/Results.txt"
-    message:"Shortstack analysis of {wildcards.sample} using {params.genome} reference"
+        n_snps = RES_DIR + "counts/{sample}.n_snps.txt"
+    message:
+        "Counting initial number SNPs in {wildcards.sample} VCF file"
+    threads: 1
+    run:
+        number_of_variants = count_variants(input.vcf)
+        print(f"The number of variants is: {number_of_variants}")
+        with open(output[0], "w") as f:
+            f.write(f"step0:\t{number_of_variants}\n")
+
+#############################################################
+## Filtering the VCF on quality, MAF, fraction of missing etc
+#############################################################
+rule filter_on_min_qual:
+    input:
+        get_vcf_file
+    output:
+        WORKING_DIR + "{sample}.qual.vcf.gz"
+    message:
+        "Filtering {wildcards.sample} VCF file on quality"
     params:
-        resdir = RES_DIR + "shortstack/{sample}/",
-        genome = lambda wildcards: samples_df.loc[wildcards.sample,"genome"]
+        quality = config["bcftools"]["min_quality"]
     threads: 20
     shell:
-        "ShortStack "
-        "--outdir {wildcards.sample} "
+        "bcftools view -i 'QUAL > {params.quality}' --threads {threads} "
+        "{input} "
+        "-Oz "
+        "-o {output}"
+
+rule filter_to_keep_biallelic_snps:
+    input:
+        WORKING_DIR + "{sample}.qual.vcf.gz"
+    output:
+        WORKING_DIR + "{sample}.qual.biallelic.vcf.gz"
+    message:
+        "Keeping only biallelic SNPs in {wildcards.sample} VCF file"
+    threads: 20
+    shell:
+        "bcftools view --max-alleles 2 "
+        "--with-header -Oz --output {output} "
         "--threads {threads} "
-        "{SHORTSTACK_PARAMS} "
-        "--readfile {input.reads} "
-	"--dn_mirna "
-        "--genome {params.genome};"
-        "cp -r {wildcards.sample}/* {params.resdir};"
-        "rm -r {wildcards.sample};"
+        "{input} "
 
-###########################################################
-## Get read length distribution (before and after trimming)
-##########################################################
-
-rule read_length_distribution:
-    input: 
-        expand(RES_DIR + "trimmed/{sample}.trimmed.fastq", sample = SAMPLES)
-    output:
-        RES_DIR + "seq_length_distribution.tsv"
-    message: 
-        "Computing sequence length distribution for all samples"
-    params:
-        path_to_fastq_files = RES_DIR + "trimmed/"
-    run:
-        create_df_of_seq_length_distributions(path_to_fastq_files =  params.path_to_fastq_files, outfile = output[0])
-
-###########################################
-## Trim reads for all samples and QC report
-###########################################
-rule multiqc_report:
+rule filter_on_maf: 
     input:
-        expand(WORKING_DIR + "trimmed/{sample}_fastp.json", sample = SAMPLES)
+        WORKING_DIR + "{sample}.qual.biallelic.vcf.gz"
     output:
-        RES_DIR + "qc/multiqc_report.html"
+        WORKING_DIR + "filtered/{sample}.qual.biallelic.maf.vcf.gz"
     message:
-        "Compiling QC reports from fastp"
+        "Filtering {wildcards.sample} biallelic VCF file on MAF"
     params:
-        input_directory = WORKING_DIR + "trimmed/",
-        output_directory = RES_DIR + "qc/"
+        maf = config["bcftools"]["maf"]
+    threads: 20
     shell:
-        "multiqc "
-        "--force " # force directory to be created
-        "--outdir {params.output_directory} "
-        "{params.input_directory}"
+        "bcftools view -i 'MAF > {params.maf}' --threads {threads} "
+        "{input} "
+        "-Oz "
+        "-o {output}"
 
-rule fastp:
+rule filter_on_fraction_missing:
     input:
-        get_fastq_file
+         WORKING_DIR + "filtered/{sample}.qual.biallelic.maf.vcf.gz"
     output:
-        fastq = RES_DIR + "trimmed/{sample}.trimmed.fastq",
-        json = WORKING_DIR + "trimmed/{sample}_fastp.json",
-        html = WORKING_DIR + "trimmed/{sample}_fastp.html"
+        RES_DIR + "filtered/{sample}.vcf.gz"
     message:
-        "trimming {wildcards.sample} reads on quality and adapter presence"
-    threads: 10
-    resources:
-        mem_mb = 1000
+        "Filtering {wildcards.sample} biallelic VCF file on percentage of missing genotype calls"
     params:
-        adapters_fasta =                config["fasta_adapters"],
-        qualified_quality_phred =       config["fastp"]["qualified_quality_phred"],
-        average_quality =               config["fastp"]["average_quality"]
+        missing = config["bcftools"]["max_fraction"]
+    threads: 20
     shell:
-        "fastp -i {input} "
-        "--stdout "
-        "--json {output.json} "
-        "--html {output.html} "
-        "--qualified_quality_phred {params.qualified_quality_phred} "
-        "--average_qual {params.average_quality} "
-        "--adapter_fasta {params.adapters_fasta} > {output.fastq}"
+        "bcftools view -i 'F_MISSING < {params.missing}' --threads {threads} "
+        "{input} "
+        "-Oz "
+        "-o {output}"
+
+rule extract_genotypes:
+    input:
+        RES_DIR + "filtered/{sample}.vcf.gz"
+    output:
+        RES_DIR + "genotypes/{sample}.genotypes.txt"
+    message:
+        "Extracting genotypes from {wildcards.sample} VCF file"
+    threads: 20
+    shell:
+        "bcftools query -f '%CHROM\t%POS\t[%GT\t]\n' {input} > {output} "

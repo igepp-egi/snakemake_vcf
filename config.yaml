@@ -1,8 +1,0 @@
----
-temp_dir: "scratch/"       # will be removed in the end. Store your intermediate files her
-result_dir: "results/"     # will be kept.
-
-# bcftools
-bcftools:
-  qual:     "--known_miRNAs refs/mirbase/sly_known_miRNAs.fasta"
-  depth:       "--mmap u"                # u = unique seeded guide for handling multi-mapped reads. Can be f/u/r/n

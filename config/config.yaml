@@ -1,0 +1,13 @@
+---
+temp_dir: "scratch/"       # will be removed in the end. Store your intermediate files her
+result_dir: "results/"     # will be kept.
+
+samples: config/samples.tsv # file with sample names
+
+# bcftools parameters
+bcftools:
+  min_quality:         "30"
+  maf:                 "0.01" # minor allele frequency (lower than or equal to; <=)
+  max_fraction:        "0.1" # max fraction of missing genotype calls (lower than or equal to; <=) 
+
+
