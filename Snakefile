@@ -5,9 +5,9 @@ import pandas as pd
 import gzip
 from cyvcf2 import VCF
 
-#########################
+###################
 ## Helper functions
-##########################
+###################
 
 def count_variants(vcf_file_path):
     """
@@ -21,6 +21,19 @@ def count_variants(vcf_file_path):
 
     vcf_reader.close()
     return variant_count
+
+def calculate_heterozygosity_rate(genotype_file_path):
+    """
+    Calculate the heterozygosity rate from a genotype file.
+    """
+    with open(genotype_file_path, 'r') as f:
+        lines = f.readlines()
+
+    total_snps = len(lines)
+    heterozygous_snps = sum(1 for line in lines if line.strip().split('\t')[2] == '0/1')
+
+    heterozygosity_rate = heterozygous_snps / total_snps if total_snps > 0 else 0
+    return heterozygosity_rate
 
 #########################
 ## Pipeline configuration
@@ -84,30 +97,52 @@ rule count_original_snps:
         with open(output[0], "w") as f:
             f.write(f"step0:\t{number_of_variants}\n")
 
-#############################################################
-## Filtering the VCF on quality, MAF, fraction of missing etc
-#############################################################
-rule filter_on_min_qual:
+rule calculate_heterozygosity_rate_in_original_vcf:
     input:
-        get_vcf_file
+        vcf = get_vcf_file
     output:
-        WORKING_DIR + "{sample}.qual.vcf.gz"
+        freq_het = RES_DIR + "metrics/raw/{sample}.freq_het.txt"
+    message:
+        "Counting initial number SNPs in {wildcards.sample} VCF file"
+    threads: 1
+    run:
+        number_of_variants = count_variants(input.vcf)
+        print(f"The number of variants is: {number_of_variants}")
+        with open(output[0], "w") as f:
+            f.write(f"step0:\t{number_of_variants}\n") 
+
+####################################################
+## Basic QC filters: min quality, min mean depth etc
+####################################################
+
+rule first_qc_filters:
+    input:
+        vcf = get_vcf_file
+    output:
+        WORKING_DIR + "{sample}.qc.vcf.gz"
     message:
         "Filtering {wildcards.sample} VCF file on quality"
     params:
-        quality = config["bcftools"]["min_quality"]
+        min_site_quality = config["bcftools"]["min_site_quality"],
+        min_sample_depth = config["bcftools"]["min_sample_depth"],
+        min_snp_depth = config["bcftools"]["min_snp_depth"],
     threads: 20
     shell:
-        "bcftools view -i 'QUAL > {params.quality}' --threads {threads} "
+        "bcftools view --include 'QUAL >= {params.min_site_quality} && (FORMAT/DP) >= {params.min_snp_depth} && MEAN(FMT/DP) >= {params.min_sample_depth}' "
+        "--threads {threads} "
         "{input} "
         "-Oz "
         "-o {output}"
 
+#############################################################
+## Keep only biallelic SNPs, filter on MAF, F_MISSING etc
+#############################################################
+
 rule filter_to_keep_biallelic_snps:
     input:
-        WORKING_DIR + "{sample}.qual.vcf.gz"
+        WORKING_DIR + "{sample}.qc.vcf.gz"
     output:
-        WORKING_DIR + "{sample}.qual.biallelic.vcf.gz"
+        WORKING_DIR + "{sample}.qc.biallelic.vcf.gz"
     message:
         "Keeping only biallelic SNPs in {wildcards.sample} VCF file"
     threads: 20
@@ -119,9 +154,9 @@ rule filter_to_keep_biallelic_snps:
 
 rule filter_on_maf: 
     input:
-        WORKING_DIR + "{sample}.qual.biallelic.vcf.gz"
+        WORKING_DIR + "{sample}.qc.biallelic.vcf.gz"
     output:
-        WORKING_DIR + "filtered/{sample}.qual.biallelic.maf.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.qc.biallelic.maf.vcf.gz"
     message:
         "Filtering {wildcards.sample} biallelic VCF file on MAF"
     params:
@@ -135,7 +170,7 @@ rule filter_on_maf:
 
 rule filter_on_fraction_missing:
     input:
-         WORKING_DIR + "filtered/{sample}.qual.biallelic.maf.vcf.gz"
+         WORKING_DIR + "filtered/{sample}.qc.biallelic.maf.vcf.gz"
     output:
         RES_DIR + "filtered/{sample}.vcf.gz"
     message:
