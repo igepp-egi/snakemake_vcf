@@ -2,14 +2,37 @@
 temp_dir: "scratch/"       # will be removed in the end. Store your intermediate files her
 result_dir: "results/"     # will be kept.
 
-samples: config/samples.tsv # file with sample names
+# Sample file: one per line
+# Format: # sample_name  [tab]  vcf_file
+# Example:
+# sample    vcf
+# vfaba_raw	vcf_files/test.vcf.gz
+samples: config/samples.tsv # tab-separated file with VCF file(s) and associated short names
 
-# bcftools parameters
+# optional tsv file with individuals to keep;
+# one column with individuals, one individual per line (no header)
+# write "all" to keep all individuals
+individuals: config/individuals.tsv 
+
+# bcftools parameters: 
+# First filters: parameters for filtering on SNP sites (common for all individuals)
+# Second filters: parameters for each genotype (on all or a subset of individuals)
 bcftools:
-  min_site_quality:    "30"
-  min_sample_depth:    "5" # minimum depth of coverage per sample (lower than or equal to; <=)
-  min_snp_depth:       "5" # minimum depth of coverage  per SNP site(lower than or equal to; <=)
-  maf:                 "0.01" # minor allele frequency (lower than or equal to; <=)
-  max_fraction:        "0.1" # max fraction of missing genotype calls (lower than or equal to; <=) 
+  snp: 
+    min_snp_quality:                     "30" # QUAL field
+    min_snp_depth:                       "5" # minimum depth of coverage  per SNP site(lower than or equal to; <=)
+    mean_depth_per_snp_site:             "10" # mean depth of coverage per SNP site (lower than or equal to; <=)
+    max_missing_fraction_per_snp_site:   "0.2" # max fraction of missing SNPs (lower than or equal to; <=) 
+  individuals:
+    min_ind_depth:                       "5"    # minimum depth of coverage per sample (lower than or equal to; <=)
+    min_genotype_quality:                "30"   # minimum genotype quality (lower than or equal to; <=)
+    min_maf:                             "0.01" # minimum minor allele frequency (higher than or equal to; >=)
+    max_missing_fraction_per_genotype:   "0.1"  # max fraction of missing genotype calls (lower than or equal to; <=) 
+    max_heterozygosity:                  "0.15" # max fraction of heterozygous genotypes (depending on the reproduction mode: allogamous or autogamous)
+
+
+
+
+
 
 
