@@ -1,0 +1,12 @@
+name: snakevcf
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - pandas=2.3.0 
+  - snakemake=9.5.1 
+  - bcftools=1.22.
+  - cyvcf2=0.31.1
+  - vcftools=0.1.17
+
