@@ -12,7 +12,7 @@ samples: config/samples.tsv # tab-separated file with VCF file(s) and associated
 # optional tsv file with individuals to keep;
 # one column with individuals, one individual per line (no header)
 # write "all" to keep all individuals
-individuals: config/individuals.tsv 
+individuals: config/individuals.tsv # has to end with .tsv
 
 # bcftools parameters: 
 # First filters: parameters for filtering on SNP sites (common for all individuals)

@@ -5,23 +5,8 @@ import pandas as pd
 import gzip
 from cyvcf2 import VCF
 
-###################
-## Helper functions
-###################
-
-def count_variants(vcf_file_path):
-    """
-    Count the number of variants in a VCF file using cyvcf2.
-    """
-    vcf_reader = VCF(vcf_file_path)
-    variant_count = 0
-
-    for variant in vcf_reader:
-        variant_count += 1
-
-    vcf_reader.close()
-    return variant_count
-
+# import Python functions from utils directory
+from utils.count_variants import count_variants_by_type
 
 #########################
 ## Pipeline configuration
@@ -53,37 +38,21 @@ def get_vcf_file(wildcards):
 ## Desired outputs
 ####################
 FILTERED_VCF = expand(RES_DIR + "filtered/{sample}.vcf.gz", sample = SAMPLES)
-SNP_COUNTS= expand(RES_DIR + "counts/{sample}.n_snps.txt", sample = SAMPLES)
+ALL_COUNTS =  RES_DIR + "counts/counts_merged.csv"
 GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.txt", sample = SAMPLES)
 
 rule all:
     input:
         FILTERED_VCF, 
-        SNP_COUNTS,
+        ALL_COUNTS,
         GENOTYPES
     message:
         "All done!"
     shell:
-        "rm -r {WORKING_DIR}/"
+        "rm -r {WORKING_DIR}/;"
+        "cp config/config.yaml {RES_DIR}/; "
+        "cp config/samples.tsv {RES_DIR}/; "
 
-
-########################
-## Original VCF metrics
-#######################
-
-rule count_original_snps:
-    input:
-        vcf = get_vcf_file
-    output:
-        n_snps = RES_DIR + "counts/{sample}.n_snps.txt"
-    message:
-        "Counting initial number SNPs in {wildcards.sample} VCF file"
-    threads: 1
-    run:
-        number_of_variants = count_variants(input.vcf)
-        print(f"The number of variants in {input.vcf} is: {number_of_variants}")
-        with open(output[0], "w") as f:
-            f.write(f"step0:\t{number_of_variants}\n")
 
 ###########################
 ## Keep only biallelic SNPs 
@@ -118,7 +87,7 @@ rule first_filters_on_snp_sites:
     params:
         min_snp_quality = config["bcftools"]["snp"]["min_snp_quality"],
         min_snp_depth = config["bcftools"]["snp"]["min_snp_depth"],
-        mean_depth_per_site = config["bcftools"]["snp"]["mean_depth_per_snp_site"]
+        mean_depth_per_snp_site = config["bcftools"]["snp"]["mean_depth_per_snp_site"]
     threads: 20
     shell:
         "bcftools view --include 'QUAL >= {params.min_snp_quality} && (FORMAT/DP) >= {params.min_snp_depth} && MEAN(FMT/DP) >= {params.mean_depth_per_snp_site}' "
@@ -131,18 +100,21 @@ rule filter_on_fraction_missing_per_snp:
     input:
         vcf = WORKING_DIR + "{sample}.biallelic.qc1.vcf.gz"
     output:
-        vcf = WORKING_DIR + "{sample}.biallelic.qc2.vcf.gz",
-        miss = WORKING_DIR + "{sample}.missing_snp.txt",
-        snps_to_keep = WORKING_DIR + "{sample}.snp_sites_to_keep.txt"
+        vcf = WORKING_DIR + "{sample}.biallelic.qc2.vcf.gz"
     message:
         "Step2: filtering {wildcards.sample} biallelic VCF file on percentage of missing data for SNP sites"
     params:
-        max_missing_fraction_per_snp = config["bcftools"]["snp"]["max_missing_fraction_per_snp_site"]
+        max_missing_fraction_per_snp = config["bcftools"]["snp"]["max_missing_fraction_per_snp_site"],
+        miss_prefix = WORKING_DIR + "{sample}.missing_snp",
+        miss_file = WORKING_DIR + "{sample}.missing_snp.lmiss",
+        snps_to_keep = WORKING_DIR + "{sample}.snp_sites_to_keep.txt"
     threads: 20
     shell:
-        "vcftools --gzvcf {input.vcf} --missing-site --out {output.miss}; "
-        "awk '{{if ($5 < {params.max_missing_fraction_per_snp}) print $1, $2}}' {output.miss} > {output.snps_to_keep}; "
-        "bcftools view -R {output.snps_to_keep} "
+        "vcftools --gzvcf {input.vcf} --missing-site --out {params.miss_prefix}; "
+        "awk -v OFS='\t' '{{if ($5 < {params.max_missing_fraction_per_snp}) print $1, $2}}' {params.miss_file} > {params.snps_to_keep}; "
+        # filter the VCF file
+        "bcftools index {input.vcf}; "
+        "bcftools view -R {params.snps_to_keep} "
         "{input.vcf} "
         "-Oz "
         "-o {output.vcf}"
@@ -190,15 +162,15 @@ rule filter_on_maf:
         "-Oz "
         "-o {output}"
 
-rule filter_on_fraction_missing:
+rule filter_on_fraction_missing_per_genotype:
     input:
-         WORKING_DIR + "filtered/{sample}.qc.biallelic.maf.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.biallelic.qc2.selected.maf.vcf.gz"
     output:
         RES_DIR + "filtered/{sample}.vcf.gz"
     message:
         "Filtering {wildcards.sample} biallelic VCF file on percentage of missing genotype calls"
     params:
-        missing = config["bcftools"]["max_fraction"]
+        missing = config["bcftools"]["individuals"]["max_missing_fraction_per_genotype"]
     threads: 20
     shell:
         "bcftools view -i 'F_MISSING < {params.missing}' --threads {threads} "
@@ -238,3 +210,98 @@ rule extract_allele_frequencies:
         "{input} "
         "-Oz "
         "-o {output}" """
+
+
+
+########################
+## Original VCF metrics
+#######################
+
+rule count_original_snps_by_types:
+    input:
+        vcf = get_vcf_file
+    output:
+        n_snps = WORKING_DIR + "counts/{sample}.step0.csv"
+    message:
+        "Counting initial number SNPs in {wildcards.sample} VCF file (all types, SNPs and indels)"
+    threads: 10
+    params: 
+        step_name = "step0: raw file"
+    run:
+        count_df = count_variants_by_type(
+            vcf_file_path=input.vcf, 
+            n_threads=1, 
+            step_name=params.step_name)
+        count_df.to_csv(output.n_snps, index=False)
+
+rule count_biallelic_snps: 
+    input:
+        vcf = WORKING_DIR + "{sample}.biallelic.vcf.gz"
+    output:
+        n_snps = WORKING_DIR + "counts/{sample}.step1.csv"
+    message:
+        "Counting number of biallelic SNPs in {wildcards.sample} VCF file"
+    threads: 10
+    params: 
+        step_name = "step1: biallelic SNPs"
+    run:
+        count_df = count_variants_by_type(
+            vcf_file_path=input.vcf, 
+            n_threads=threads, 
+            step_name=params.step_name)
+        count_df.to_csv(output.n_snps, index=False)
+
+rule count_after_first_filters:
+    input:
+        vcf = WORKING_DIR + "{sample}.biallelic.qc1.vcf.gz"
+    output:
+        n_snps = WORKING_DIR + "counts/{sample}.step2.csv"
+    message:
+        "Counting number of SNPs after first filters in {wildcards.sample} VCF file"
+    threads: 10
+    params: 
+        step_name = "step2: first filters on SNPs"
+    run:
+        count_df = count_variants_by_type(
+            vcf_file_path=input.vcf, 
+            n_threads=1, 
+            step_name=params.step_name)
+        count_df.to_csv(output.n_snps, index=False)
+
+# get fastq file
+def get_vcf_file(wildcards):
+    vcf_file = samples_df.loc[wildcards.sample,"vcf"]
+    return vcf_file
+
+
+def get_count_csv_files(wildcards):
+    # Get all count CSV files for the current sample
+    csv_files = glob_wildcards(
+        WORKING_DIR + "counts/{wildcards.sample}.step*.csv",
+        sample=wildcards.sample
+    )
+    return csv_files
+
+
+rule merge_all_step_counts: 
+    input:
+        expand(
+            WORKING_DIR + "counts/{sample}.step{step}.csv",
+            sample=SAMPLES,
+            step=[0, 1, 2]
+        )
+    output:
+        RES_DIR + "counts/counts_merged.csv"
+    message:
+        "Merging all counts from different steps into a summary file"
+    params: 
+        out_path = RES_DIR + "counts/counts_merged.csv"
+    run:
+        counts_df = []
+        for f in input:
+            print("working on file:", f)
+            df = pd.read_csv(f, index_col=0).head() 
+            counts_df.append(df)
+        counts_df = pd.concat(counts_df, axis=0)
+        counts_df.to_csv(path_or_buf=params.out_path, index=True)
+
