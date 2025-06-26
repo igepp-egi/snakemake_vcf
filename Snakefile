@@ -41,15 +41,19 @@ FILTERED_VCF = expand(RES_DIR + "filtered/{sample}.vcf.gz", sample = SAMPLES)
 ALL_COUNTS =  RES_DIR + "counts/counts_merged.csv"
 GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.txt", sample = SAMPLES)
 
+BED = expand(WORKING_DIR + "plink/{sample}_{status}.snp.lmiss", sample = SAMPLES, status = ["raw", "filtered"])
+
+
 rule all:
     input:
         FILTERED_VCF, 
         ALL_COUNTS,
-        GENOTYPES
+        GENOTYPES, 
+        BED
     message:
         "All done!"
     shell:
-        "rm -r {WORKING_DIR}/;"
+        #"rm -r {WORKING_DIR}/;"
         "cp config/config.yaml {RES_DIR}/; "
         "cp config/samples.tsv {RES_DIR}/; "
 
@@ -58,13 +62,13 @@ rule all:
 ## Keep only biallelic SNPs 
 ###########################
 
-rule filter_to_keep_biallelic_snps:
+rule step1_keep_biallelic_snps:
     input:
         vcf = get_vcf_file
     output:
-        WORKING_DIR + "{sample}.biallelic.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.biallelic.vcf.gz"
     message:
-        "Keeping only biallelic SNPs in {wildcards.sample} VCF file"
+        "Step1: Keeping only biallelic SNPs in {wildcards.sample} VCF file"
     threads: 20
     shell:
         "bcftools view --max-alleles 2 "
@@ -77,13 +81,13 @@ rule filter_to_keep_biallelic_snps:
 ## Filters on SNP quality, depth, etc. 
 ###########################################
 
-rule first_filters_on_snp_sites:
+rule step2_filter_snp_sites:
     input:
-        WORKING_DIR + "{sample}.biallelic.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.biallelic.vcf.gz"
     output:
-        WORKING_DIR + "{sample}.biallelic.qc1.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.biallelic.qc1.vcf.gz"
     message:
-        "Step1: filtering {wildcards.sample} VCF file on SNP depth and SNP quality"
+        "Step2: filtering {wildcards.sample} VCF file on SNP depth and SNP quality"
     params:
         min_snp_quality = config["bcftools"]["snp"]["min_snp_quality"],
         min_snp_depth = config["bcftools"]["snp"]["min_snp_depth"],
@@ -96,18 +100,18 @@ rule first_filters_on_snp_sites:
         "-Oz "
         "-o {output}"
 
-rule filter_on_fraction_missing_per_snp:
+rule step3_filter_on_fraction_missing_per_snp:
     input:
-        vcf = WORKING_DIR + "{sample}.biallelic.qc1.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.biallelic.qc1.vcf.gz"
     output:
-        vcf = WORKING_DIR + "{sample}.biallelic.qc2.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.biallelic.qc2.vcf.gz"
     message:
-        "Step2: filtering {wildcards.sample} biallelic VCF file on percentage of missing data for SNP sites"
+        "Step3: filtering {wildcards.sample} biallelic VCF file to keep SNP with less than {params.max_missing_fraction_per_snp} fraction missing"
     params:
         max_missing_fraction_per_snp = config["bcftools"]["snp"]["max_missing_fraction_per_snp_site"],
-        miss_prefix = WORKING_DIR + "{sample}.missing_snp",
-        miss_file = WORKING_DIR + "{sample}.missing_snp.lmiss",
-        snps_to_keep = WORKING_DIR + "{sample}.snp_sites_to_keep.txt"
+        miss_prefix = WORKING_DIR + "filtered/{sample}.missing_snp",
+        miss_file = WORKING_DIR + "filtered/{sample}.missing_snp.lmiss",
+        snps_to_keep = WORKING_DIR + "filtered/{sample}.snp_sites_to_keep.txt"
     threads: 20
     shell:
         "vcftools --gzvcf {input.vcf} --missing-site --out {params.miss_prefix}; "
@@ -130,9 +134,9 @@ if config["individuals"] == "all":
 elif config["individuals"].endswith('.tsv'):
     rule select_individuals:
         input:
-            WORKING_DIR + "{sample}.biallelic.qc2.vcf.gz"
+            WORKING_DIR + "filtered/{sample}.biallelic.qc2.vcf.gz"
         output:
-            WORKING_DIR + "{sample}.biallelic.qc2.selected.vcf.gz"
+            WORKING_DIR + "filtered/{sample}.biallelic.qc2.selected.vcf.gz"
         message:
             "Selecting individuals from {wildcards.sample} biallelic VCF file"
         params:
@@ -146,13 +150,13 @@ elif config["individuals"].endswith('.tsv'):
 else: 
     raise ValueError("The 'individuals' parameter in the config file must be either 'all' or a path to a TSV file with individuals to keep.")
 
-rule filter_on_maf: 
+rule step4_filter_on_maf: 
     input:
-        WORKING_DIR + "{sample}.biallelic.qc2.selected.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.biallelic.qc2.selected.vcf.gz"
     output:
         WORKING_DIR + "filtered/{sample}.biallelic.qc2.selected.maf.vcf.gz"
     message:
-        "Filtering {wildcards.sample} biallelic VCF file on MAF"
+        "Step4: filtering {wildcards.sample} biallelic VCF file on MAF higher than {params.min_maf}"
     params:
         min_maf = config["bcftools"]["individuals"]["min_maf"]
     threads: 20
@@ -162,13 +166,13 @@ rule filter_on_maf:
         "-Oz "
         "-o {output}"
 
-rule filter_on_fraction_missing_per_genotype:
+rule step5_filter_fraction_missing_per_genotype:
     input:
         WORKING_DIR + "filtered/{sample}.biallelic.qc2.selected.maf.vcf.gz"
     output:
         RES_DIR + "filtered/{sample}.vcf.gz"
     message:
-        "Filtering {wildcards.sample} biallelic VCF file on percentage of missing genotype calls"
+        "Step5: filtering {wildcards.sample} biallelic VCF file on percentage of missing genotype calls"
     params:
         missing = config["bcftools"]["individuals"]["max_missing_fraction_per_genotype"]
     threads: 20
@@ -177,6 +181,11 @@ rule filter_on_fraction_missing_per_genotype:
         "{input} "
         "-Oz "
         "-o {output}"
+
+###########################################
+## Extract genotypes and allele frequencies
+## Filtering on HWE and heterozygote excess
+###########################################
 
 rule extract_genotypes:
     input:
@@ -201,21 +210,9 @@ rule extract_allele_frequencies:
     shell:
         "bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\t%INFO/AF\n' {input} > {output}"
 
-#bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\t%INFO/AF\n' vfaba_hedin_peamust_SNP_GATK.vcf.gz > allele_frequencies.txt
-
-# Filter to keep sample sequenced to a certain depth
-"""     shell:
-        "bcftools view --include 'MEAN(FMT/DP) >= {params.min_sample_depth}' "
-        "--threads {threads} "
-        "{input} "
-        "-Oz "
-        "-o {output}" """
-
-
-
-########################
-## Original VCF metrics
-#######################
+#####################
+## SNP counts metrics
+#####################
 
 rule count_original_snps_by_types:
     input:
@@ -260,7 +257,7 @@ rule count_after_first_filters:
         "Counting number of SNPs after first filters in {wildcards.sample} VCF file"
     threads: 10
     params: 
-        step_name = "step2: first filters on SNPs"
+        step_name = "step2: filters on SNPs"
     run:
         count_df = count_variants_by_type(
             vcf_file_path=input.vcf, 
@@ -268,27 +265,63 @@ rule count_after_first_filters:
             step_name=params.step_name)
         count_df.to_csv(output.n_snps, index=False)
 
-# get fastq file
-def get_vcf_file(wildcards):
-    vcf_file = samples_df.loc[wildcards.sample,"vcf"]
-    return vcf_file
+rule count_after_filter_fraction_missing_per_snp: 
+    input:
+        vcf = WORKING_DIR + "{sample}.biallelic.qc2.vcf.gz"
+    output:
+        n_snps = WORKING_DIR + "counts/{sample}.step3.csv"
+    message:
+        "Counting number of SNPs after filtering on fraction missing per SNP in {wildcards.sample} VCF file"
+    threads: 10
+    params: 
+        step_name = "step3: filter on fraction missing per SNP"
+    run:
+        count_df = count_variants_by_type(
+            vcf_file_path=input.vcf, 
+            n_threads=1, 
+            step_name=params.step_name)
+        count_df.to_csv(output.n_snps, index=False)
 
+rule count_after_maf_filter: 
+    input:
+        vcf = WORKING_DIR + "filtered/{sample}.biallelic.qc2.selected.maf.vcf.gz"
+    output:
+        n_snps = WORKING_DIR + "counts/{sample}.step4.csv"
+    message:
+        "Counting number of SNPs after MAF filter in {wildcards.sample} VCF file"
+    threads: 10
+    params: 
+        step_name = "step4: MAF filter"
+    run:
+        count_df = count_variants_by_type(
+            vcf_file_path=input.vcf, 
+            n_threads=1, 
+            step_name=params.step_name)
+        count_df.to_csv(output.n_snps, index=False)
 
-def get_count_csv_files(wildcards):
-    # Get all count CSV files for the current sample
-    csv_files = glob_wildcards(
-        WORKING_DIR + "counts/{wildcards.sample}.step*.csv",
-        sample=wildcards.sample
-    )
-    return csv_files
-
+rule count_after_fraction_missing_per_genotype: 
+    input:
+        vcf = RES_DIR + "filtered/{sample}.vcf.gz"
+    output:
+        n_snps = WORKING_DIR + "counts/{sample}.step5.csv"
+    message:
+        "Counting number of SNPs after filtering on fraction missing per genotype in {wildcards.sample} VCF file"
+    threads: 10
+    params: 
+        step_name = "step5: filter on fraction missing per genotype"
+    run:
+        count_df = count_variants_by_type(
+            vcf_file_path=input.vcf, 
+            n_threads=1, 
+            step_name=params.step_name)
+        count_df.to_csv(output.n_snps, index=False)
 
 rule merge_all_step_counts: 
     input:
         expand(
             WORKING_DIR + "counts/{sample}.step{step}.csv",
             sample=SAMPLES,
-            step=[0, 1, 2]
+            step=[0, 1, 2, 3, 4, 5]
         )
     output:
         RES_DIR + "counts/counts_merged.csv"
@@ -305,3 +338,71 @@ rule merge_all_step_counts:
         counts_df = pd.concat(counts_df, axis=0)
         counts_df.to_csv(path_or_buf=params.out_path, index=True)
 
+###############################
+# QC before and after filtering
+###############################
+
+rule convert_vcf_files_to_plink_format:
+    input:
+        raw_vcf = get_vcf_file,
+        filtered_vcf = RES_DIR + "filtered/{sample}.vcf.gz"
+    output:
+        plink_raw = WORKING_DIR + "plink/{sample}_raw.snp.bed",
+        plink_filtered = WORKING_DIR + "plink/{sample}_filtered.snp.bed"
+    message:
+        "Preparing PLINK files from {wildcards.sample} VCF files"
+    threads: 20
+    params: 
+        plink_prefix_raw = WORKING_DIR + "plink/{sample}_raw.snp",
+        plink_prefix_filtered = WORKING_DIR + "plink/{sample}_filtered.snp"
+    shell:
+        "mkdir -p {WORKING_DIR}/plink/; "
+        "plink --vcf {input.raw_vcf}      --make-bed --out {params.plink_prefix_raw} --allow-extra-chr; "
+        "plink --vcf {input.filtered_vcf} --make-bed --out {params.plink_prefix_filtered} --allow-extra-chr;"
+
+rule plink_compute_snp_and_genotype_missing_rate: 
+    input:
+        plink = WORKING_DIR + "plink/{sample}_{status}.bed"
+    output:
+        snp_missing = WORKING_DIR + "plink/{sample}_{status}.lmiss",
+        geno_missing = WORKING_DIR + "plink/{sample}_{status}.imiss"
+    message:
+        "Computing SNP and genotype missing rates for {wildcards.sample} {wildcards.status} PLINK files"
+    params: 
+        plink_prefix = WORKING_DIR + "plink/{sample}_{status}"
+    threads: 20
+    shell:
+        "plink --bfile {params.plink_prefix} --missing --out {params.plink_prefix} --allow-extra-chr"
+
+
+
+
+#####################
+# Extra draft section
+#####################
+
+#bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\t%INFO/AF\n' vfaba_hedin_peamust_SNP_GATK.vcf.gz > allele_frequencies.txt
+
+# Filter to keep sample sequenced to a certain depth
+"""     shell:
+        "bcftools view --include 'MEAN(FMT/DP) >= {params.min_sample_depth}' "
+        "--threads {threads} "
+        "{input} "
+        "-Oz "
+        "-o {output}" """
+
+# Convert VCF to PLINK format
+# plink --make-bed --vcf vfaba_hedin_peamust_SNP_GATK.vcf.gz --out vfaba --allow-extra-chr
+
+# Extract allele frequencies from the VCF file
+""" CHR	Chromosome code
+SNP	Variant identifier
+A1	Allele 1 (usually minor)
+A2	Allele 2 (usually major)
+C(HOM A1)	A1 homozygote count
+C(HET)	Heterozygote count
+C(HOM A2)	A2 homozygote count
+C(HAP A1)	Haploid A1 count (includes male X chromosome)
+C(HAP A2)	Haploid A2 count
+C(MISSING)	Missing genotype count """
+# plink --freqx --out vfaba_freq --bfile vfaba --allow-extra-chr
