@@ -1,6 +1,8 @@
 ---
 temp_dir: "scratch/"       # will be removed in the end. Store your intermediate files her
+keep_temp_dir: true  # if true, the temp directory will be kept at the end of the run
 result_dir: "results/"     # will be kept.
+
 
 # Sample file: one per line
 # Format: # sample_name  [tab]  vcf_file

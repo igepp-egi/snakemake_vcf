@@ -39,23 +39,33 @@ def get_vcf_file(wildcards):
 ####################
 FILTERED_VCF = expand(RES_DIR + "filtered/{sample}.vcf.gz", sample = SAMPLES)
 ALL_COUNTS =  RES_DIR + "counts/counts_merged.csv"
-GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.txt", sample = SAMPLES)
+GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.tsv", sample = SAMPLES)
 
-BED = expand(WORKING_DIR + "plink/{sample}_{status}.snp.lmiss", sample = SAMPLES, status = ["raw", "filtered"])
+BED = expand(WORKING_DIR + "plink/{sample}_{status}.lmiss", sample = SAMPLES, status = ["raw", "filtered"])
 
-
-rule all:
-    input:
-        FILTERED_VCF, 
-        ALL_COUNTS,
-        GENOTYPES, 
-        BED
-    message:
-        "All done!"
-    shell:
-        #"rm -r {WORKING_DIR}/;"
-        "cp config/config.yaml {RES_DIR}/; "
-        "cp config/samples.tsv {RES_DIR}/; "
+if config["keep_temp_dir"] == True:
+    rule all:
+        input:
+            FILTERED_VCF, 
+            ALL_COUNTS,
+            GENOTYPES, 
+            #BED
+        message: "All done! Temporary directory will be kept."
+        shell:
+            "cp config/config.yaml {RES_DIR}/; "
+            "cp config/samples.tsv {RES_DIR}/; "
+else:       
+    rule all:
+        input:
+            FILTERED_VCF, 
+            ALL_COUNTS,
+            GENOTYPES, 
+            BED
+        message: "All done!"
+        shell:
+            "rm -r {WORKING_DIR}/;"
+            "cp config/config.yaml {RES_DIR}/; "
+            "cp config/samples.tsv {RES_DIR}/; "
 
 
 ###########################
@@ -187,16 +197,54 @@ rule step5_filter_fraction_missing_per_genotype:
 ## Filtering on HWE and heterozygote excess
 ###########################################
 
-rule extract_genotypes:
-    input:
-        RES_DIR + "filtered/{sample}.vcf.gz"
-    output:
-        RES_DIR + "genotypes/{sample}.genotypes.txt"
+rule extract_individual_genotypes:
+    input: 
+        vcf = RES_DIR + "filtered/{sample}.vcf.gz"
+    output: 
+        WORKING_DIR + "list_of_genotypes/{sample}.list_individuals.csv" 
     message:
-        "Extracting genotypes from {wildcards.sample} VCF file"
-    threads: 20
+        "Extracting genotypes for {wildcards.sample} from {input.vcf} VCF file"
+    threads: 1
     shell:
-        "bcftools query -f '%CHROM\t%POS\t[%GT\t]\n' {input} > {output} "
+        "bcftools query --list-samples {input.vcf} > {output}"
+            
+rule extract_genotypes_without_header:
+    input:
+        vcf = RES_DIR + "filtered/{sample}.vcf.gz"
+    output:
+        WORKING_DIR + "genotypes/{sample}.genotypes.GT.FORMAT"
+    message:
+        "Extracting genotypes for {wildcards.sample} from {input.vcf} VCF file; no header will be included"
+    threads: 1
+    params: 
+        out_prefix = WORKING_DIR + "genotypes/{sample}.genotypes"
+    shell:
+        "vcftools --gzvcf {input.vcf} --extract-FORMAT-info GT --out {params.out_prefix} "
+
+rule add_individuals_to_genotypes_tsv:
+    input:
+        genotypes = WORKING_DIR + "genotypes/{sample}.genotypes.GT.FORMAT",
+        individuals = WORKING_DIR + "genotypes/{sample}.list_individuals.csv"
+    output:
+        RES_DIR + "genotypes/{sample}.genotypes.tsv"
+    message:
+        "Adding individuals header to {wildcards.sample} genotypes file"
+    threads: 1
+    run:
+        genotypes_df = pd.read_csv(input.genotypes, sep="\t")
+        # concatenate the first two columns (CHROM and POS) to create a snp_id column and set as index
+        genotypes_df['snp_id'] = genotypes_df.iloc[:, 0].astype(str) + "_" + genotypes_df.iloc[:, 1].astype(str)
+        # Drop the first two columns (CHROM and POS)
+        genotypes_df = genotypes_df.drop("CHROM", axis=1)
+        genotypes_df = genotypes_df.drop("POS", axis=1)
+        # Set the snp_id as index
+        genotypes_df = genotypes_df.set_index('snp_id')
+        # Read the individuals file
+        individuals_df = pd.read_csv(input.individuals, names=["individuals"], header=None)
+        # Add the individuals as the first row of the genotypes file
+        genotypes_df.columns = individuals_df.individuals.values
+        # Save the updated genotypes file
+        genotypes_df.to_csv(output, sep="\t", index=True, header=True)
 
 # Extract allele frequencies from the filtered VCF file
 rule extract_allele_frequencies:
@@ -233,7 +281,7 @@ rule count_original_snps_by_types:
 
 rule count_biallelic_snps: 
     input:
-        vcf = WORKING_DIR + "{sample}.biallelic.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.biallelic.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step1.csv"
     message:
@@ -250,7 +298,7 @@ rule count_biallelic_snps:
 
 rule count_after_first_filters:
     input:
-        vcf = WORKING_DIR + "{sample}.biallelic.qc1.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.biallelic.qc1.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step2.csv"
     message:
@@ -267,7 +315,7 @@ rule count_after_first_filters:
 
 rule count_after_filter_fraction_missing_per_snp: 
     input:
-        vcf = WORKING_DIR + "{sample}.biallelic.qc2.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.biallelic.qc2.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step3.csv"
     message:
@@ -318,11 +366,9 @@ rule count_after_fraction_missing_per_genotype:
 
 rule merge_all_step_counts: 
     input:
-        expand(
-            WORKING_DIR + "counts/{sample}.step{step}.csv",
-            sample=SAMPLES,
-            step=[0, 1, 2, 3, 4, 5]
-        )
+        expand(WORKING_DIR + "counts/{sample}.step{step}.csv",
+        sample=SAMPLES, 
+        step=[0, 1, 2, 3, 4, 5])
     output:
         RES_DIR + "counts/counts_merged.csv"
     message:
@@ -347,14 +393,14 @@ rule convert_vcf_files_to_plink_format:
         raw_vcf = get_vcf_file,
         filtered_vcf = RES_DIR + "filtered/{sample}.vcf.gz"
     output:
-        plink_raw = WORKING_DIR + "plink/{sample}_raw.snp.bed",
-        plink_filtered = WORKING_DIR + "plink/{sample}_filtered.snp.bed"
+        plink_raw = WORKING_DIR + "plink/{sample}_raw.bed",
+        plink_filtered = WORKING_DIR + "plink/{sample}_filtered.bed"
     message:
         "Preparing PLINK files from {wildcards.sample} VCF files"
     threads: 20
     params: 
-        plink_prefix_raw = WORKING_DIR + "plink/{sample}_raw.snp",
-        plink_prefix_filtered = WORKING_DIR + "plink/{sample}_filtered.snp"
+        plink_prefix_raw = WORKING_DIR + "plink/{sample}_raw",
+        plink_prefix_filtered = WORKING_DIR + "plink/{sample}_filtered"
     shell:
         "mkdir -p {WORKING_DIR}/plink/; "
         "plink --vcf {input.raw_vcf}      --make-bed --out {params.plink_prefix_raw} --allow-extra-chr; "
@@ -374,7 +420,23 @@ rule plink_compute_snp_and_genotype_missing_rate:
     shell:
         "plink --bfile {params.plink_prefix} --missing --out {params.plink_prefix} --allow-extra-chr"
 
-
+rule parse_and_plot_snp_and_genotype_missing_rates: 
+    input:
+        snp_missing = WORKING_DIR + "plink/{sample}_{status}.lmiss",
+        geno_missing = WORKING_DIR + "plink/{sample}_{status}.imiss"
+    output:
+       snp_plot = RES_DIR + "plots/{sample}_{status}.snp_missing.png",
+       geno_plot = RES_DIR + "plots/{sample}_{status}.genotype_missing.png"
+    message:
+        "Parsing SNP and genotype missing rates for {wildcards.sample} {wildcards.status} PLINK files"
+    threads: 20
+    params: 
+        outdir = RES_DIR + "plots/"
+    shell:
+        "awk -v OFS='\t' '{{print $1, $2, $3, $4, $5}}' {input.snp_missing} > {output.snp_missing_parsed}; "
+        "awk -v OFS='\t' '{{print $1, $2, $3, $4, $5}}' {input.geno_missing} > {output.geno_missing_parsed}; "
+        "python utils/plot_snp_missing_rates.py --outdir {params.outdir} --input {input.snp_missing} {output.snp_plot}; "
+        "python utils/plot_genotype_missing_rates.py --outdir {params.outdir} --input {input.geno_missing} {output.geno_plot}; "
 
 
 #####################
