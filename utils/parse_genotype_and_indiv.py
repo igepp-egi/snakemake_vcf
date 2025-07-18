@@ -31,8 +31,6 @@ def create_genotype_tsv(genotypes_tsv, individuals_csv, output_tsv):
     individuals_df = pd.read_csv(individuals_csv, names=["individuals"], header=None)
     genotypes_df.columns = individuals_df.individuals.values
 
-    print(genotypes_df.head())  # Debugging: print the first few rows of the DataFrame
-
     # Write the processed genotype DataFrame to a .tsv file
     genotypes_df.to_csv(output_tsv, sep="\t")
 
