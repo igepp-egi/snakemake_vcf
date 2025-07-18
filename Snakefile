@@ -7,6 +7,8 @@ from cyvcf2 import VCF
 
 # import Python functions from utils directory
 from utils.count_variants import count_variants_by_type
+from utils.parse_genotype_and_indiv import create_genotype_tsv
+from utils.calculate_heterozygosity_rates import calculate_heterozygosity_rates
 
 #########################
 ## Pipeline configuration
@@ -40,6 +42,9 @@ def get_vcf_file(wildcards):
 FILTERED_VCF = expand(RES_DIR + "filtered/{sample}.vcf.gz", sample = SAMPLES)
 ALL_COUNTS =  RES_DIR + "counts/counts_merged.csv"
 GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.tsv", sample = SAMPLES)
+HET_RATES = expand(RES_DIR + "genotypes/{sample}.{type}.heterozygosity_rates.tsv",
+                  sample = SAMPLES, 
+                  type = ["snps", "individuals"])
 
 BED = expand(WORKING_DIR + "plink/{sample}_{status}.lmiss", sample = SAMPLES, status = ["raw", "filtered"])
 
@@ -49,6 +54,7 @@ if config["keep_temp_dir"] == True:
             FILTERED_VCF, 
             ALL_COUNTS,
             GENOTYPES, 
+            HET_RATES
             #BED
         message: "All done! Temporary directory will be kept."
         shell:
@@ -197,54 +203,56 @@ rule step5_filter_fraction_missing_per_genotype:
 ## Filtering on HWE and heterozygote excess
 ###########################################
 
-rule extract_individual_genotypes:
+rule extract_individuals_and_genotypes:
     input: 
         vcf = RES_DIR + "filtered/{sample}.vcf.gz"
     output: 
-        WORKING_DIR + "list_of_genotypes/{sample}.list_individuals.csv" 
+        individuals = WORKING_DIR + "genotypes/{sample}.list_individuals.csv",
+        genotypes = WORKING_DIR + "genotypes/{sample}.genotypes.GT.FORMAT" 
     message:
-        "Extracting genotypes for {wildcards.sample} from {input.vcf} VCF file"
-    threads: 1
-    shell:
-        "bcftools query --list-samples {input.vcf} > {output}"
-            
-rule extract_genotypes_without_header:
-    input:
-        vcf = RES_DIR + "filtered/{sample}.vcf.gz"
-    output:
-        WORKING_DIR + "genotypes/{sample}.genotypes.GT.FORMAT"
-    message:
-        "Extracting genotypes for {wildcards.sample} from {input.vcf} VCF file; no header will be included"
-    threads: 1
+        "Extracting genotypes and individuals for {wildcards.sample} from {input.vcf} VCF file"
     params: 
         out_prefix = WORKING_DIR + "genotypes/{sample}.genotypes"
+    threads: 1
     shell:
+        "bcftools query --list-samples {input.vcf} > {output.individuals};"
         "vcftools --gzvcf {input.vcf} --extract-FORMAT-info GT --out {params.out_prefix} "
-
+            
 rule add_individuals_to_genotypes_tsv:
     input:
-        genotypes = WORKING_DIR + "genotypes/{sample}.genotypes.GT.FORMAT",
-        individuals = WORKING_DIR + "genotypes/{sample}.list_individuals.csv"
+        individuals = WORKING_DIR + "genotypes/{sample}.list_individuals.csv",
+        genotypes = WORKING_DIR + "genotypes/{sample}.genotypes.GT.FORMAT"
     output:
         RES_DIR + "genotypes/{sample}.genotypes.tsv"
     message:
-        "Adding individuals header to {wildcards.sample} genotypes file"
+        "Create the {wildcards.sample} genotype tsv file"
+    params:
+        output_file_path = RES_DIR + "genotypes/{sample}.genotypes.tsv"
     threads: 1
     run:
-        genotypes_df = pd.read_csv(input.genotypes, sep="\t")
-        # concatenate the first two columns (CHROM and POS) to create a snp_id column and set as index
-        genotypes_df['snp_id'] = genotypes_df.iloc[:, 0].astype(str) + "_" + genotypes_df.iloc[:, 1].astype(str)
-        # Drop the first two columns (CHROM and POS)
-        genotypes_df = genotypes_df.drop("CHROM", axis=1)
-        genotypes_df = genotypes_df.drop("POS", axis=1)
-        # Set the snp_id as index
-        genotypes_df = genotypes_df.set_index('snp_id')
-        # Read the individuals file
-        individuals_df = pd.read_csv(input.individuals, names=["individuals"], header=None)
-        # Add the individuals as the first row of the genotypes file
-        genotypes_df.columns = individuals_df.individuals.values
-        # Save the updated genotypes file
-        genotypes_df.to_csv(output, sep="\t", index=True, header=True)
+        create_genotype_tsv(
+            genotypes_tsv=input.genotypes, 
+            individuals_csv=input.individuals, 
+            output_tsv=params.output_file_path)
+
+rule calculate_heterozygosity_rates:
+    input:
+        genotypes = RES_DIR + "genotypes/{sample}.genotypes.tsv"
+    output:
+        ind_het = RES_DIR + "genotypes/{sample}.individuals.heterozygosity_rates.tsv",
+        snp_het = RES_DIR + "genotypes/{sample}.snps.heterozygosity_rates.tsv"
+    message:
+        "Calculating heterozygosity rates for {wildcards.sample} genotypes"
+    threads: 1
+    params: 
+        out_snp_het_rates = RES_DIR + "genotypes/{sample}.snps.heterozygosity_rates.tsv",
+        out_individuals_het_rates = RES_DIR + "genotypes/{sample}.individuals.heterozygosity_rates.tsv"
+    run:
+        calculate_heterozygosity_rates(
+            input_genotypes_tsv=input.genotypes,
+            out_snp_het_rates_tsv=params.out_snp_het_rates,
+            out_individuals_het_rates_tsv=params.out_individuals_het_rates)
+
 
 # Extract allele frequencies from the filtered VCF file
 rule extract_allele_frequencies:
