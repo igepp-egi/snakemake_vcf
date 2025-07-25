@@ -386,7 +386,6 @@ rule merge_all_step_counts:
     run:
         counts_df = []
         for f in input:
-            print("working on file:", f)
             df = pd.read_csv(f, index_col=0).head() 
             counts_df.append(df)
         counts_df = pd.concat(counts_df, axis=0)
