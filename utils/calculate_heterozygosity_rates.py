@@ -94,14 +94,37 @@ def calculate_individuals_heterozygosity_rates(input_genotypes_tsv, out_individu
          "1|0": 1, 
          "0|1": 1})
     
-    # For each SNP, sum the number of individuals that are homozygous (0 or 2) and heterozygous (1); calculate the heterozygosity rate
-    genotypes_df['homozygous'] = genotypes_df.apply(lambda x: (x == 0).sum() + (x == 2).sum(), axis=0) # axis = 0 means apply function to each column
-    genotypes_df['heterozygous'] = genotypes_df.apply(lambda x: (x == 1).sum(), axis=0) 
-    genotypes_df['heterozygosity_rate'] = genotypes_df['heterozygous'] / (genotypes_df['homozygous'] + genotypes_df['heterozygous'])    
+    genotypes_df = pd.read_csv(input_genotypes_tsv, sep="\t", index_col=0) 
+    # replace genotype strings with numeric values
+    genotypes_df = genotypes_df.replace(
+        {"0/0": "0", 
+         "0|0": "0", 
+         "0/1": "1", 
+         "1/0": "1", 
+         "1|0": "1", 
+         "0|1": "1", 
+         "1/1": "2", 
+         "1|1": "2"}
+        )
+    # for each column, calculate the heterozygosity rate
+    heterozygote_number_per_individual = genotypes_df.apply(lambda x: (x == "1").sum(), axis=0)
+    # if 0 or 2 are present, then the individual is homozygous
+    homozygous_number_per_individual_0 = genotypes_df.apply(lambda x: (x == "0").sum(), axis=0)
+    homozygous_number_per_individual_2 = genotypes_df.apply(lambda x: (x == "2").sum(), axis=0)
+    # if 0 or 2 are present, then the individual is homozygous
+    homozygous_number_per_individual = homozygous_number_per_individual_0 + homozygous_number_per_individual_2
 
-    individuals_het_rates = genotypes_df.drop(columns=genotypes_df.columns[:-3])  # remove 
-    individuals_het_rates.to_csv(out_individuals_het_rates_tsv, sep="\t")
+    # create a new dataframe with the heterozygosity rates
+    het_rates_df = pd.DataFrame({
+        "heterozygote_number": heterozygote_number_per_individual,
+        "homozygous_number": homozygous_number_per_individual
+    })
 
-    # remove the individuals columns
-    het_rates = genotypes_df.drop(columns=genotypes_df.columns[:-3])
-    het_rates.to_csv("scratch/genotypes/test.snps.heterozygosity.tsv", sep="\t")
+    # create a new column with the heterozygosity rate
+    het_rates_df["heterozygosity_rate"] = het_rates_df["heterozygote_number"] / (het_rates_df["heterozygote_number"] + het_rates_df["homozygous_number"])
+
+    # reset the index to have the individual IDs as a column
+    het_rates_df.reset_index(inplace=True)
+    het_rates_df.rename(columns={"index": "individual_id"}, inplace=True)
+
+    het_rates_df.to_csv(out_individuals_het_rates_tsv, sep="\t", index=False, header=True)

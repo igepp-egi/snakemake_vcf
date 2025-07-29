@@ -8,7 +8,7 @@ from cyvcf2 import VCF
 # import Python functions from utils directory
 from utils.count_variants import count_variants_by_type
 from utils.parse_genotype_and_indiv import create_genotype_tsv
-from utils.calculate_heterozygosity_rates import calculate_heterozygosity_rates
+from utils.calculate_heterozygosity_rates import calculate_snp_heterozygosity_rates, calculate_individuals_heterozygosity_rates
 
 #########################
 ## Pipeline configuration
@@ -44,9 +44,9 @@ ALL_COUNTS =  RES_DIR + "counts/counts_merged.csv"
 GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.tsv", sample = SAMPLES)
 HET_RATES = expand(RES_DIR + "genotypes/{sample}.{type}.heterozygosity_rates.tsv",
                   sample = SAMPLES, 
-                  type = ["snps", "individuals"])
+                  type = ["individuals"])
 
-BED = expand(WORKING_DIR + "plink/{sample}_{status}.lmiss", sample = SAMPLES, status = ["raw", "filtered"])
+#BED = expand(WORKING_DIR + "plink/{sample}_{status}.lmiss", sample = SAMPLES, status = ["raw", "filtered"])
 
 if config["keep_temp_dir"] == True:
     rule all:
@@ -55,7 +55,6 @@ if config["keep_temp_dir"] == True:
             ALL_COUNTS,
             GENOTYPES, 
             HET_RATES
-            #BED
         message: "All done! Temporary directory will be kept."
         shell:
             "cp config/config.yaml {RES_DIR}/; "
@@ -235,23 +234,25 @@ rule add_individuals_to_genotypes_tsv:
             individuals_csv=input.individuals, 
             output_tsv=params.output_file_path)
 
-rule calculate_heterozygosity_rates:
+rule calculate_individuals_heterozygosity_rates:
     input:
         genotypes = RES_DIR + "genotypes/{sample}.genotypes.tsv"
     output:
-        ind_het = RES_DIR + "genotypes/{sample}.individuals.heterozygosity_rates.tsv",
-        snp_het = RES_DIR + "genotypes/{sample}.snps.heterozygosity_rates.tsv"
+        ind_het = RES_DIR + "genotypes/{sample}.individuals.heterozygosity_rates.tsv"
     message:
         "Calculating heterozygosity rates for {wildcards.sample} genotypes"
     threads: 1
-    params: 
-        out_snp_het_rates = RES_DIR + "genotypes/{sample}.snps.heterozygosity_rates.tsv",
+    params:
         out_individuals_het_rates = RES_DIR + "genotypes/{sample}.individuals.heterozygosity_rates.tsv"
     run:
-        calculate_heterozygosity_rates(
+        calculate_individuals_heterozygosity_rates(
             input_genotypes_tsv=input.genotypes,
-            out_snp_het_rates_tsv=params.out_snp_het_rates,
             out_individuals_het_rates_tsv=params.out_individuals_het_rates)
+
+###########################################
+## Impute missing genotypes using Beagle v4
+###########################################
+
 
 
 # Extract allele frequencies from the filtered VCF file
