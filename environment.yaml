@@ -10,5 +10,5 @@ dependencies:
   - cyvcf2
   - vcftools=0.1.17
   - plink=1.90b7.7
-  - beagle
+  - beagle=5.4
 

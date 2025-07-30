@@ -2,6 +2,13 @@
 
 A small pipeline to filter a VCF file and produce QC plots before/after filterings
 
+## TODOs
+0. Fix bug with calculate_heterozygosity_rates.py
+1. Move select individuals to the top
+2. Add imputation with Beagle v5
+3. Add a filtering step to remove individuals with high heterozygosity rates before imputation
+4. Add a filtering step on the MAF after imputation
+
 ## Usage
 
 1. Create the conda environment to install all required dependencies.   
