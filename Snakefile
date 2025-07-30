@@ -412,7 +412,7 @@ rule count_after_fraction_missing_per_genotype:
 
 rule count_after_heterozygosity_filter: 
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.het.vcf.gz
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.het.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step6.csv"
     message:
