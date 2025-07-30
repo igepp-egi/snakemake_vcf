@@ -382,10 +382,10 @@ rule count_after_maf_filter:
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step4.csv"
     message:
-        "Counting number of SNPs after MAF filter in {wildcards.sample} VCF file"
+        "Counting number of SNPs after MAF filter in {wildcards.sample} VCF file; before imputation"
     threads: 10
     params: 
-        step_name = "step4: MAF filter"
+        step_name = "step4: MAF filter (before imputation)"
     run:
         count_df = count_variants_by_type(
             vcf_file_path=input.vcf, 
@@ -410,11 +410,28 @@ rule count_after_fraction_missing_per_genotype:
             step_name=params.step_name)
         count_df.to_csv(output.n_snps, index=False)
 
+rule count_after_heterozygosity_filter: 
+    input:
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.het.vcf.gz
+    output:
+        n_snps = WORKING_DIR + "counts/{sample}.step6.csv"
+    message:
+        "Counting number of SNPs after filtering on heterozygosity excess in {wildcards.sample} VCF file"
+    threads: 10
+    params: 
+        step_name = "step6: filter on heterozygosity excess"
+    run:
+        count_df = count_variants_by_type(
+            vcf_file_path=input.vcf, 
+            n_threads=1, 
+            step_name=params.step_name)
+        count_df.to_csv(output.n_snps, index=False)
+
 rule merge_all_step_counts: 
     input:
         expand(WORKING_DIR + "counts/{sample}.step{step}.csv",
         sample=SAMPLES, 
-        step=[0, 1, 2, 3, 4, 5])
+        step=[0, 1, 2, 3, 4, 5, 6])
     output:
         RES_DIR + "counts/counts_merged.csv"
     message:
