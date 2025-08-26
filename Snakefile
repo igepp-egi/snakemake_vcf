@@ -39,10 +39,7 @@ def get_vcf_file(wildcards):
 ####################
 ## Desired outputs
 ####################
-
-
-
-FILTERED_VCF = expand(RES_DIR + "filtered/{sample}.filtered_and_imputed.vcf.gz", sample = SAMPLES)
+FILTERED_VCF = expand(RES_DIR + "filtered/{sample}.vcf.gz", sample = SAMPLES)
 ALL_COUNTS =  RES_DIR + "counts/counts_merged.csv"
 GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.tsv", sample = SAMPLES)
 HET_RATES = expand(RES_DIR + "genotypes/{sample}.{type}.heterozygosity_rates.tsv",
@@ -69,7 +66,7 @@ else:
             ALL_COUNTS,
             GENOTYPES, 
             BED
-        message: "All done! Temporary directory removed."
+        message: "All done!"
         shell:
             "rm -r {WORKING_DIR}/;"
             "cp config/config.yaml {RES_DIR}/; "
@@ -160,7 +157,7 @@ rule step3_filter_on_fraction_missing_per_snp:
     threads: 20
     shell:
         "vcftools --gzvcf {input.vcf} --missing-site --out {params.miss_prefix}; "
-        "awk -v OFS='\t' '{{if ($5 < {params.max_missing_fraction_per_snp}) print $1, $2}}' {params.miss_file} > {params.snps_to_keep}; "
+        "awk -v OFS='\t' '{{if ($6 < {params.max_missing_fraction_per_snp}) print $1, $2}}' {params.miss_file} > {params.snps_to_keep}; "
         # filter the VCF file
         "bcftools index {input.vcf}; "
         "bcftools view -R {params.snps_to_keep} "
@@ -294,15 +291,18 @@ rule step7_impute_missing_genotypes:
     input:
         vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.het.vcf.gz"
     output:
-        vcf = RES_DIR + "filtered/{sample}.filtered_and_imputed.vcf.gz"
+        vcf = RES_DIR + "filtered/{sample}.filtered.imputed.vcf.gz"
     message:
         "Step7: imputing missing genotypes in {wildcards.sample} VCF file using Beagle v5"
+    params:
+        beagle_memory = config["beagle"]["memory"]
+        beagle_impute = config["beagle"]["impute"]
     threads: 20
     shell:
         "beagle gt={input.vcf} "
         "out={output.vcf} "
-        "impute=true "
-        "nthreads={threads}"
+        "memory={params.beagle_memory} "
+        "--threads {threads}"
 
 #####################
 ## SNP counts metrics
@@ -382,10 +382,10 @@ rule count_after_maf_filter:
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step4.csv"
     message:
-        "Counting number of SNPs after MAF filter in {wildcards.sample} VCF file; before imputation"
+        "Counting number of SNPs after MAF filter in {wildcards.sample} VCF file"
     threads: 10
     params: 
-        step_name = "step4: MAF filter (before imputation)"
+        step_name = "step4: MAF filter"
     run:
         count_df = count_variants_by_type(
             vcf_file_path=input.vcf, 
@@ -410,28 +410,11 @@ rule count_after_fraction_missing_per_genotype:
             step_name=params.step_name)
         count_df.to_csv(output.n_snps, index=False)
 
-rule count_after_heterozygosity_filter: 
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.het.vcf.gz"
-    output:
-        n_snps = WORKING_DIR + "counts/{sample}.step6.csv"
-    message:
-        "Counting number of SNPs after filtering on heterozygosity excess in {wildcards.sample} VCF file"
-    threads: 10
-    params: 
-        step_name = "step6: filter on heterozygosity excess"
-    run:
-        count_df = count_variants_by_type(
-            vcf_file_path=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_snps, index=False)
-
 rule merge_all_step_counts: 
     input:
         expand(WORKING_DIR + "counts/{sample}.step{step}.csv",
         sample=SAMPLES, 
-        step=[0, 1, 2, 3, 4, 5, 6])
+        step=[0, 1, 2, 3, 4, 5])
     output:
         RES_DIR + "counts/counts_merged.csv"
     message:
@@ -500,3 +483,33 @@ rule parse_and_plot_snp_and_genotype_missing_rates:
         "python utils/plot_snp_missing_rates.py --outdir {params.outdir} --input {input.snp_missing} {output.snp_plot}; "
         "python utils/plot_genotype_missing_rates.py --outdir {params.outdir} --input {input.geno_missing} {output.geno_plot}; "
 
+
+#####################
+# Extra draft section
+#####################
+
+#bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\t%INFO/AF\n' vfaba_hedin_peamust_SNP_GATK.vcf.gz > allele_frequencies.txt
+
+# Filter to keep sample sequenced to a certain depth
+"""     shell:
+        "bcftools view --include 'MEAN(FMT/DP) >= {params.min_sample_depth}' "
+        "--threads {threads} "
+        "{input} "
+        "-Oz "
+        "-o {output}" """
+
+# Convert VCF to PLINK format
+# plink --make-bed --vcf vfaba_hedin_peamust_SNP_GATK.vcf.gz --out vfaba --allow-extra-chr
+
+# Extract allele frequencies from the VCF file
+""" CHR	Chromosome code
+SNP	Variant identifier
+A1	Allele 1 (usually minor)
+A2	Allele 2 (usually major)
+C(HOM A1)	A1 homozygote count
+C(HET)	Heterozygote count
+C(HOM A2)	A2 homozygote count
+C(HAP A1)	Haploid A1 count (includes male X chromosome)
+C(HAP A2)	Haploid A2 count
+C(MISSING)	Missing genotype count """
+# plink --freqx --out vfaba_freq --bfile vfaba --allow-extra-chr
