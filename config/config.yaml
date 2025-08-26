@@ -33,6 +33,11 @@ bcftools:
     max_missing_fraction_per_genotype:   "0.1"  # max fraction of missing genotype calls (lower than or equal to; <=) 
     max_heterozygosity:                  "0.15" # max fraction of heterozygous genotypes (depending on the reproduction mode: allogamous or autogamous)
 
+# Beagle v5 parameters:
+beagle: 
+  memory: "4G" # memory for Beagle (e.g. 4G, 8G, 16G, etc.)
+  impute: true # if true, Beagle will be used to impute missing genotypes
+
 
 
 
