@@ -39,14 +39,12 @@ def get_vcf_file(wildcards):
 ####################
 ## Desired outputs
 ####################
-FILTERED_VCF = expand(RES_DIR + "filtered/{sample}.vcf.gz", sample = SAMPLES)
+FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz", sample = SAMPLES) 
 ALL_COUNTS =  RES_DIR + "counts/counts_merged.csv"
 GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.tsv", sample = SAMPLES)
 HET_RATES = expand(RES_DIR + "genotypes/{sample}.{type}.heterozygosity_rates.tsv",
                   sample = SAMPLES, 
                   type = ["individuals"])
-
-#BED = expand(WORKING_DIR + "plink/{sample}_{status}.lmiss", sample = SAMPLES, status = ["raw", "filtered"])
 
 if config["keep_temp_dir"] == True:
     rule all:
@@ -106,7 +104,7 @@ else:
 
 rule step1_keep_biallelic_snps:
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.vcf.gz"
+        vcf =  WORKING_DIR + "filtered/{sample}.selected.vcf.gz"
     output:
         WORKING_DIR + "filtered/{sample}.selected.biallelic.vcf.gz"
     message:
@@ -291,7 +289,7 @@ rule step7_impute_missing_genotypes:
     input:
         vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.het.vcf.gz"
     output:
-        vcf = RES_DIR + "filtered/{sample}.filtered.imputed.vcf.gz"
+        vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
     message:
         "Step7: imputing missing genotypes in {wildcards.sample} VCF file using Beagle v5"
     params:
