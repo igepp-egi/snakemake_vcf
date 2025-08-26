@@ -295,7 +295,7 @@ rule step7_impute_missing_genotypes:
     message:
         "Step7: imputing missing genotypes in {wildcards.sample} VCF file using Beagle v5"
     params:
-        beagle_memory = config["beagle"]["memory"]
+        beagle_memory = config["beagle"]["memory"],
         beagle_impute = config["beagle"]["impute"]
     threads: 20
     shell:
