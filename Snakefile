@@ -147,16 +147,19 @@ rule step3_filter_on_fraction_missing_per_snp:
         miss_file = WORKING_DIR + "filtered/{sample}.missing_snp.lmiss",
         snps_to_keep = WORKING_DIR + "filtered/{sample}.snp_sites_to_keep.txt"
     threads: config["threads"]
-    shell:
+    run:
         # identify SNP sites to keep based on max. percentage of missing allowed
-        "vcftools --gzvcf {input.vcf} --missing-site --out {params.miss_prefix}; "
-        "awk -v OFS='\t' '{{if ($6 < {params.max_missing_fraction_per_snp}) print $1, $2}}' {params.miss_file} > {params.snps_to_keep}; "
+        vcftools_cmd = "vcftools --gzvcf " + input.vcf + " --missing-site --out " + params.miss_prefix
+        subprocess.run(vcftools_cmd, shell=True, check=True)
+        # Extract SNP site info (CHR, POS) if F_MISS < max_missing_fraction_per_snp
+        miss_data = pd.read_csv(params.miss_file, sep="\t")
+        miss_data['F_MISS'] = pd.to_numeric(miss_data['F_MISS'], errors='coerce')
+        miss_data_filtered = miss_data[miss_data['F_MISS'] < float(params.max_missing_fraction_per_snp)]
+        miss_data_filtered_chr_pos = miss_data_filtered.iloc[:,0:2] 
+        miss_data_filtered_chr_pos.to_csv(path_or_buf=params.snps_to_keep, sep='\t', header=False, index=False)  
         # filter the VCF file accordingly
-        "bcftools index {input.vcf}; "
-        "bcftools view -R {params.snps_to_keep} "
-        "{input.vcf} "
-        "-Oz "
-        "-o {output.vcf}"
+        bcftools_cmd = "bcftools index " + input.vcf + "; bcftools view -R " + params.snps_to_keep + " " + input.vcf + " -Oz -o " + output.vcf + " --threads " + str(threads)
+        subprocess.run(bcftools_cmd, shell=True, check=True)
 
 ############################
 ## Filter on MAF, F_MISSING 
