@@ -299,14 +299,13 @@ rule step7_impute_missing_genotypes:
     shell:
         "beagle gt={input.vcf} "
         "out={output.vcf} "
-        "memory={params.beagle_memory} "
-        "--threads {threads}"
+        "nthreads={threads}"
 
 #####################
 ## SNP counts metrics
 #####################
 
-rule count_original_snps_by_types:
+rule count_at_step0_raw_snps:
     input:
         vcf = get_vcf_file
     output:
@@ -323,11 +322,11 @@ rule count_original_snps_by_types:
             step_name=params.step_name)
         count_df.to_csv(output.n_snps, index=False)
 
-rule count_biallelic_snps: 
+rule count_after_step1_biallelic_snps: 
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.biallelic.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.vcf.gz"
     output:
-        n_snps = WORKING_DIR + "counts/{sample}.step1.csv"
+        n_snps = WORKING_DIR + "counts/{sample}.step1.csv" 
     message:
         "Counting number of biallelic SNPs in {wildcards.sample} VCF file"
     threads: 10
@@ -340,7 +339,7 @@ rule count_biallelic_snps:
             step_name=params.step_name)
         count_df.to_csv(output.n_snps, index=False)
 
-rule count_after_first_filters:
+rule count_after_step2_snp_filters:
     input:
         vcf = WORKING_DIR + "filtered/{sample}.biallelic.qc1.vcf.gz"
     output:
@@ -357,7 +356,7 @@ rule count_after_first_filters:
             step_name=params.step_name)
         count_df.to_csv(output.n_snps, index=False)
 
-rule count_after_filter_fraction_missing_per_snp: 
+rule count_after_step3_frac_missing_per_snp: 
     input:
         vcf = WORKING_DIR + "filtered/{sample}.biallelic.qc2.vcf.gz"
     output:
@@ -374,7 +373,7 @@ rule count_after_filter_fraction_missing_per_snp:
             step_name=params.step_name)
         count_df.to_csv(output.n_snps, index=False)
 
-rule count_after_maf_filter: 
+rule count_after_step4_maf_filter: 
     input:
         vcf = WORKING_DIR + "filtered/{sample}.biallelic.qc2.selected.maf.vcf.gz"
     output:
@@ -391,7 +390,7 @@ rule count_after_maf_filter:
             step_name=params.step_name)
         count_df.to_csv(output.n_snps, index=False)
 
-rule count_after_fraction_missing_per_genotype: 
+rule count_after_step5_frac_missing_per_genotype: 
     input:
         vcf = RES_DIR + "filtered/{sample}.vcf.gz"
     output:
@@ -408,11 +407,45 @@ rule count_after_fraction_missing_per_genotype:
             step_name=params.step_name)
         count_df.to_csv(output.n_snps, index=False)
 
+rule count_after_step6_het_excess_filter: 
+    input:
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.het.vcf.gz"
+    output:
+        n_snps = WORKING_DIR + "counts/{sample}.step6.csv"
+    message:
+        "Counting number of SNPs after filtering on heterozygosity excess in {wildcards.sample} VCF file"
+    threads: 10
+    params: 
+        step_name = "step6: filter on heterozygosity excess"
+    run:
+        count_df = count_variants_by_type(
+            vcf_file_path=input.vcf, 
+            n_threads=1, 
+            step_name=params.step_name)
+        count_df.to_csv(output.n_snps, index=False)
+
+rule count_after_step7_imputation: 
+    input:
+        vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
+    output:
+        n_snps = WORKING_DIR + "counts/{sample}.step7.csv"
+    message:
+        "Counting number of SNPs after imputation in {wildcards.sample} VCF file"
+    threads: 10
+    params: 
+        step_name = "step7: after imputation"
+    run:
+        count_df = count_variants_by_type(
+            vcf_file_path=input.vcf, 
+            n_threads=1, 
+            step_name=params.step_name)
+        count_df.to_csv(output.n_snps, index=False)
+
 rule merge_all_step_counts: 
     input:
         expand(WORKING_DIR + "counts/{sample}.step{step}.csv",
         sample=SAMPLES, 
-        step=[0, 1, 2, 3, 4, 5])
+        step=[0, 1, 2, 3, 4, 5, 6, 7])
     output:
         RES_DIR + "counts/counts_merged.csv"
     message:
