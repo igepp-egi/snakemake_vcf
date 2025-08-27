@@ -89,7 +89,7 @@ elif config["individuals"].endswith('.tsv'):
             "Selecting individuals from {wildcards.sample} raw VCF file"
         params:
             individuals = config["individuals"] # List of individuals to keep ("all" to keep all)
-        threads: 20
+        threads: config["threads"]
         shell:
             "bcftools view -S {params.individuals} --threads {threads} "
             "{input} "
@@ -109,7 +109,7 @@ rule step1_keep_biallelic_snps:
         WORKING_DIR + "filtered/{sample}.selected.biallelic.vcf.gz"
     message:
         "Step1: Keeping only biallelic SNPs in {wildcards.sample} VCF file"
-    threads: 20
+    threads: config["threads"]
     shell:
         "bcftools view --max-alleles 2 "
         "--with-header -Oz --output {output} "
@@ -132,7 +132,7 @@ rule step2_filter_snp_sites:
         min_snp_quality = config["bcftools"]["snp"]["min_snp_quality"],
         min_snp_depth = config["bcftools"]["snp"]["min_snp_depth"],
         mean_depth_per_snp_site = config["bcftools"]["snp"]["mean_depth_per_snp_site"]
-    threads: 20
+    threads: config["threads"]
     shell:
         "bcftools view --include 'QUAL >= {params.min_snp_quality} && (FORMAT/DP) >= {params.min_snp_depth} && MEAN(FMT/DP) >= {params.mean_depth_per_snp_site}' "
         "--threads {threads} "
@@ -152,7 +152,7 @@ rule step3_filter_on_fraction_missing_per_snp:
         miss_prefix = WORKING_DIR + "filtered/{sample}.missing_snp",
         miss_file = WORKING_DIR + "filtered/{sample}.missing_snp.lmiss",
         snps_to_keep = WORKING_DIR + "filtered/{sample}.snp_sites_to_keep.txt"
-    threads: 20
+    threads: config["threads"]
     shell:
         # identify SNP sites to keep based on max. percentage of missing allowed
         "vcftools --gzvcf {input.vcf} --missing-site --out {params.miss_prefix}; "
@@ -177,7 +177,7 @@ rule step4_filter_on_maf_before_imputation:
         "Step4: filtering {wildcards.sample} biallelic VCF file on MAF higher than {params.min_maf}; before imputation"
     params:
         min_maf = config["bcftools"]["individuals"]["min_maf_before_imputation"]
-    threads: 20
+    threads: config["threads"]
     shell:
         "bcftools view -i 'MAF > {params.min_maf}' --threads {threads} "
         "{input} "
@@ -193,7 +193,7 @@ rule step5_filter_fraction_missing_per_genotype:
         "Step5: filtering {wildcards.sample} biallelic VCF file on percentage of missing genotype calls"
     params:
         missing = config["bcftools"]["individuals"]["max_missing_fraction_per_genotype"]
-    threads: 20
+    threads: config["threads"]
     shell:
         "bcftools view -i 'F_MISSING < {params.missing}' --threads {threads} "
         "{input} "
@@ -261,7 +261,7 @@ rule extract_list_of_individuals_heterozygosity_excess:
         "Extracting individuals with heterozygosity excess from {wildcards.sample} genotypes"
     params:
         max_het = config["bcftools"]["individuals"]["max_heterozygosity"]
-    threads: 20
+    threads: 1
     shell:
         "awk -v OFS='\\t' '{{if ($3 < {params.max_het}) print $1}}' {input.ind_het} > {output.ind_het_excess}"
 
@@ -275,7 +275,7 @@ rule step6_filter_on_heterozygosity_excess:
         "Step6: filtering {wildcards.sample} VCF file on heterozygosity excess"
     params:
         het_excess = WORKING_DIR + "genotypes/{sample}.individuals.heterozygosity_excess.list"
-    threads: 20
+    threads: config["threads"]
     shell:
         "bcftools view -S {input.ind_het_excess} --threads {threads} "
         "{input.vcf} "
@@ -296,7 +296,7 @@ rule step7_impute_missing_genotypes:
     params:
         beagle_memory = config["beagle"]["memory"],
         beagle_impute = config["beagle"]["impute"]
-    threads: 20
+    threads: config["threads"]
     shell:
         "beagle gt={input.vcf} "
         "out={output.vcf} "
@@ -313,7 +313,7 @@ rule count_at_step0_raw_snps:
         n_snps = WORKING_DIR + "counts/{sample}.step0.csv"
     message:
         "Counting initial number SNPs in {wildcards.sample} VCF file (all types, SNPs and indels)"
-    threads: 10
+    threads: 1
     params: 
         step_name = "step0: raw file"
     run:
@@ -330,7 +330,7 @@ rule count_after_step1_biallelic_snps:
         n_snps = WORKING_DIR + "counts/{sample}.step1.csv" 
     message:
         "Counting number of biallelic SNPs in {wildcards.sample} VCF file"
-    threads: 10
+    threads: 1
     params: 
         step_name = "step1: biallelic SNPs"
     run:
@@ -347,7 +347,7 @@ rule count_after_step2_snp_filters:
         n_snps = WORKING_DIR + "counts/{sample}.step2.csv"
     message:
         "Counting number of SNPs after first filters in {wildcards.sample} VCF file"
-    threads: 10
+    threads: 1
     params: 
         step_name = "step2: filters on SNPs"
     run:
@@ -364,7 +364,7 @@ rule count_after_step3_frac_missing_per_snp:
         n_snps = WORKING_DIR + "counts/{sample}.step3.csv"
     message:
         "Counting number of SNPs after filtering on fraction missing per SNP in {wildcards.sample} VCF file"
-    threads: 10
+    threads: 1
     params: 
         step_name = "step3: filter on fraction missing per SNP"
     run:
@@ -381,7 +381,7 @@ rule count_after_step4_maf_filter:
         n_snps = WORKING_DIR + "counts/{sample}.step4.csv"
     message:
         "Counting number of SNPs after MAF filter in {wildcards.sample} VCF file"
-    threads: 10
+    threads: 1
     params: 
         step_name = "step4: MAF filter"
     run:
@@ -398,7 +398,7 @@ rule count_after_step5_frac_missing_per_genotype:
         n_snps = WORKING_DIR + "counts/{sample}.step5.csv"
     message:
         "Counting number of SNPs after filtering on fraction missing per genotype in {wildcards.sample} VCF file"
-    threads: 10
+    threads: 1
     params: 
         step_name = "step5: filter on fraction missing per genotype"
     run:
@@ -415,7 +415,7 @@ rule count_after_step6_het_excess_filter:
         n_snps = WORKING_DIR + "counts/{sample}.step6.csv"
     message:
         "Counting number of SNPs after filtering on heterozygosity excess in {wildcards.sample} VCF file"
-    threads: 10
+    threads: 1
     params: 
         step_name = "step6: filter on heterozygosity excess"
     run:
@@ -432,7 +432,7 @@ rule count_after_step7_imputation:
         n_snps = WORKING_DIR + "counts/{sample}.step7.csv"
     message:
         "Counting number of SNPs after imputation in {wildcards.sample} VCF file"
-    threads: 10
+    threads: 1
     params: 
         step_name = "step7: after imputation"
     run:
@@ -453,6 +453,7 @@ rule merge_all_step_counts:
         "Merging all counts from different steps into a summary file"
     params: 
         out_path = RES_DIR + "counts/counts_merged.csv"
+    threads: 1
     run:
         counts_df = []
         for f in input:
@@ -474,7 +475,7 @@ rule convert_vcf_files_to_plink_format:
         plink_filtered = WORKING_DIR + "plink/{sample}_filtered.bed"
     message:
         "Preparing PLINK files from {wildcards.sample} VCF files"
-    threads: 20
+    threads: config["threads"]
     params: 
         plink_prefix_raw = WORKING_DIR + "plink/{sample}_raw",
         plink_prefix_filtered = WORKING_DIR + "plink/{sample}_filtered"
@@ -493,7 +494,7 @@ rule plink_compute_snp_and_genotype_missing_rate:
         "Computing SNP and genotype missing rates for {wildcards.sample} {wildcards.status} PLINK files"
     params: 
         plink_prefix = WORKING_DIR + "plink/{sample}_{status}"
-    threads: 20
+    threads: config["threads"]
     shell:
         "plink --bfile {params.plink_prefix} --missing --out {params.plink_prefix} --allow-extra-chr"
 
@@ -506,7 +507,7 @@ rule parse_and_plot_snp_and_genotype_missing_rates:
        geno_plot = RES_DIR + "plots/{sample}_{status}.genotype_missing.png"
     message:
         "Parsing SNP and genotype missing rates for {wildcards.sample} {wildcards.status} PLINK files"
-    threads: 20
+    threads: config["threads"]
     params: 
         outdir = RES_DIR + "plots/"
     shell:
