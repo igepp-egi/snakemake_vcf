@@ -41,18 +41,12 @@ def get_vcf_file(wildcards):
 ####################
 FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz", sample = SAMPLES) 
 ALL_COUNTS =  RES_DIR + "counts/counts_merged.csv"
-GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.tsv", sample = SAMPLES)
-# HET_RATES = expand(RES_DIR + "genotypes/{sample}.{type}.heterozygosity_rates.tsv",
-#                   sample = SAMPLES, 
-#                   type = ["individuals"])
 
 if config["keep_temp_dir"] == True:
     rule all:
         input:
             FILTERED_VCF, 
-            ALL_COUNTS,
-            GENOTYPES, 
-            #HET_RATES
+            ALL_COUNTS
         message: "All done! Temporary directory will be kept."
         shell:
             "cp config/config.yaml {RES_DIR}/; "
