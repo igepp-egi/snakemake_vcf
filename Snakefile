@@ -42,9 +42,9 @@ def get_vcf_file(wildcards):
 FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz", sample = SAMPLES) 
 ALL_COUNTS =  RES_DIR + "counts/counts_merged.csv"
 GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.tsv", sample = SAMPLES)
-HET_RATES = expand(RES_DIR + "genotypes/{sample}.{type}.heterozygosity_rates.tsv",
-                  sample = SAMPLES, 
-                  type = ["individuals"])
+# HET_RATES = expand(RES_DIR + "genotypes/{sample}.{type}.heterozygosity_rates.tsv",
+#                   sample = SAMPLES, 
+#                   type = ["individuals"])
 
 if config["keep_temp_dir"] == True:
     rule all:
@@ -52,7 +52,7 @@ if config["keep_temp_dir"] == True:
             FILTERED_VCF, 
             ALL_COUNTS,
             GENOTYPES, 
-            HET_RATES
+            #HET_RATES
         message: "All done! Temporary directory will be kept."
         shell:
             "cp config/config.yaml {RES_DIR}/; "
@@ -144,7 +144,7 @@ rule step3_filter_on_fraction_missing_per_snp:
     input:
         vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.vcf.gz"
     output:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
     message:
         "Step3: filtering {wildcards.sample}  biallelic VCF file to keep SNP with less than {params.max_missing_fraction_per_snp} fraction missing"
     params:
@@ -154,9 +154,10 @@ rule step3_filter_on_fraction_missing_per_snp:
         snps_to_keep = WORKING_DIR + "filtered/{sample}.snp_sites_to_keep.txt"
     threads: 20
     shell:
+        # identify SNP sites to keep based on max. percentage of missing allowed
         "vcftools --gzvcf {input.vcf} --missing-site --out {params.miss_prefix}; "
         "awk -v OFS='\t' '{{if ($6 < {params.max_missing_fraction_per_snp}) print $1, $2}}' {params.miss_file} > {params.snps_to_keep}; "
-        # filter the VCF file
+        # filter the VCF file accordingly
         "bcftools index {input.vcf}; "
         "bcftools view -R {params.snps_to_keep} "
         "{input.vcf} "
@@ -169,9 +170,9 @@ rule step3_filter_on_fraction_missing_per_snp:
 
 rule step4_filter_on_maf_before_imputation: 
     input:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
     output:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.vcf.gz"
     message:
         "Step4: filtering {wildcards.sample} biallelic VCF file on MAF higher than {params.min_maf}; before imputation"
     params:
@@ -185,9 +186,9 @@ rule step4_filter_on_maf_before_imputation:
 
 rule step5_filter_fraction_missing_per_genotype:
     input:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.vcf.gz"
     output:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz"
     message:
         "Step5: filtering {wildcards.sample} biallelic VCF file on percentage of missing genotype calls"
     params:
@@ -206,7 +207,7 @@ rule step5_filter_fraction_missing_per_genotype:
 
 rule extract_individuals_and_genotypes:
     input: 
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz"
     output: 
         individuals = WORKING_DIR + "genotypes/{sample}.list_individuals.csv",
         genotypes = WORKING_DIR + "genotypes/{sample}.genotypes.GT.FORMAT" 
@@ -266,10 +267,10 @@ rule extract_list_of_individuals_heterozygosity_excess:
 
 rule step6_filter_on_heterozygosity_excess:
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.vcf.gz",
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz",
         ind_het_excess = WORKING_DIR + "genotypes/{sample}.individuals.heterozygosity_excess.list"
     output:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.het.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
     message:
         "Step6: filtering {wildcards.sample} VCF file on heterozygosity excess"
     params:
@@ -287,7 +288,7 @@ rule step6_filter_on_heterozygosity_excess:
 
 rule step7_impute_missing_genotypes:
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.het.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
     output:
         vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
     message:
@@ -341,7 +342,7 @@ rule count_after_step1_biallelic_snps:
 
 rule count_after_step2_snp_filters:
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step2.csv"
     message:
@@ -358,7 +359,7 @@ rule count_after_step2_snp_filters:
 
 rule count_after_step3_frac_missing_per_snp: 
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.biallelic.qc2.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step3.csv"
     message:
@@ -375,7 +376,7 @@ rule count_after_step3_frac_missing_per_snp:
 
 rule count_after_step4_maf_filter: 
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.biallelic.qc2.selected.maf.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step4.csv"
     message:
@@ -392,7 +393,7 @@ rule count_after_step4_maf_filter:
 
 rule count_after_step5_frac_missing_per_genotype: 
     input:
-        vcf = RES_DIR + "filtered/{sample}.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step5.csv"
     message:
@@ -409,7 +410,7 @@ rule count_after_step5_frac_missing_per_genotype:
 
 rule count_after_step6_het_excess_filter: 
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc2.maf.miss.het.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step6.csv"
     message:
