@@ -341,7 +341,7 @@ rule count_after_step1_biallelic_snps:
 
 rule count_after_step2_snp_filters:
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.biallelic.qc1.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step2.csv"
     message:
