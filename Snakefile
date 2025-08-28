@@ -329,7 +329,7 @@ rule count_after_step1_biallelic_snps:
 
 rule count_after_step2_snp_filters:
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step2.csv"
     message:
@@ -346,7 +346,7 @@ rule count_after_step2_snp_filters:
 
 rule count_after_step3_frac_missing_per_snp: 
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.recode.vcf"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step3.csv"
     message:
@@ -449,87 +449,3 @@ rule merge_all_step_counts:
         counts_df = pd.concat(counts_df, axis=0)
         counts_df.to_csv(path_or_buf=params.out_path, index=True)
 
-###############################
-# QC before and after filtering
-###############################
-
-rule convert_vcf_files_to_plink_format:
-    input:
-        raw_vcf = get_vcf_file,
-        filtered_vcf = RES_DIR + "filtered/{sample}.vcf.gz"
-    output:
-        plink_raw = WORKING_DIR + "plink/{sample}_raw.bed",
-        plink_filtered = WORKING_DIR + "plink/{sample}_filtered.bed"
-    message:
-        "Preparing PLINK files from {wildcards.sample} VCF files"
-    threads: config["threads"]
-    params: 
-        plink_prefix_raw = WORKING_DIR + "plink/{sample}_raw",
-        plink_prefix_filtered = WORKING_DIR + "plink/{sample}_filtered"
-    shell:
-        "mkdir -p {WORKING_DIR}/plink/; "
-        "plink --vcf {input.raw_vcf}      --make-bed --out {params.plink_prefix_raw} --allow-extra-chr; "
-        "plink --vcf {input.filtered_vcf} --make-bed --out {params.plink_prefix_filtered} --allow-extra-chr;"
-
-rule plink_compute_snp_and_genotype_missing_rate: 
-    input:
-        plink = WORKING_DIR + "plink/{sample}_{status}.bed"
-    output:
-        snp_missing = WORKING_DIR + "plink/{sample}_{status}.lmiss",
-        geno_missing = WORKING_DIR + "plink/{sample}_{status}.imiss"
-    message:
-        "Computing SNP and genotype missing rates for {wildcards.sample} {wildcards.status} PLINK files"
-    params: 
-        plink_prefix = WORKING_DIR + "plink/{sample}_{status}"
-    threads: config["threads"]
-    shell:
-        "plink --bfile {params.plink_prefix} --missing --out {params.plink_prefix} --allow-extra-chr"
-
-rule parse_and_plot_snp_and_genotype_missing_rates: 
-    input:
-        snp_missing = WORKING_DIR + "plink/{sample}_{status}.lmiss",
-        geno_missing = WORKING_DIR + "plink/{sample}_{status}.imiss"
-    output:
-       snp_plot = RES_DIR + "plots/{sample}_{status}.snp_missing.png",
-       geno_plot = RES_DIR + "plots/{sample}_{status}.genotype_missing.png"
-    message:
-        "Parsing SNP and genotype missing rates for {wildcards.sample} {wildcards.status} PLINK files"
-    threads: config["threads"]
-    params: 
-        outdir = RES_DIR + "plots/"
-    shell:
-        "awk -v OFS='\t' '{{print $1, $2, $3, $4, $5}}' {input.snp_missing} > {output.snp_missing_parsed}; "
-        "awk -v OFS='\t' '{{print $1, $2, $3, $4, $5}}' {input.geno_missing} > {output.geno_missing_parsed}; "
-        "python utils/plot_snp_missing_rates.py --outdir {params.outdir} --input {input.snp_missing} {output.snp_plot}; "
-        "python utils/plot_genotype_missing_rates.py --outdir {params.outdir} --input {input.geno_missing} {output.geno_plot}; "
-
-
-#####################
-# Extra draft section
-#####################
-
-#bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\t%INFO/AF\n' vfaba_hedin_peamust_SNP_GATK.vcf.gz > allele_frequencies.txt
-
-# Filter to keep sample sequenced to a certain depth
-"""     shell:
-        "bcftools view --include 'MEAN(FMT/DP) >= {params.min_sample_depth}' "
-        "--threads {threads} "
-        "{input} "
-        "-Oz "
-        "-o {output}" """
-
-# Convert VCF to PLINK format
-# plink --make-bed --vcf vfaba_hedin_peamust_SNP_GATK.vcf.gz --out vfaba --allow-extra-chr
-
-# Extract allele frequencies from the VCF file
-""" CHR	Chromosome code
-SNP	Variant identifier
-A1	Allele 1 (usually minor)
-A2	Allele 2 (usually major)
-C(HOM A1)	A1 homozygote count
-C(HET)	Heterozygote count
-C(HOM A2)	A2 homozygote count
-C(HAP A1)	Haploid A1 count (includes male X chromosome)
-C(HAP A2)	Haploid A2 count
-C(MISSING)	Missing genotype count """
-# plink --freqx --out vfaba_freq --bfile vfaba --allow-extra-chr
