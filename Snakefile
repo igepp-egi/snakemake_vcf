@@ -138,28 +138,18 @@ rule step3_filter_on_fraction_missing_per_snp:
     input:
         vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.vcf.gz"
     output:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.recode.vcf"
     message:
         "Step3: filtering {wildcards.sample}  biallelic VCF file to keep SNP with less than {params.max_missing_fraction_per_snp} fraction missing"
     params:
-        max_missing_fraction_per_snp = config["bcftools"]["snp"]["max_missing_fraction_per_snp_site"],
-        miss_prefix = WORKING_DIR + "filtered/{sample}.missing_snp",
-        miss_file = WORKING_DIR + "filtered/{sample}.missing_snp.lmiss",
-        snps_to_keep = WORKING_DIR + "filtered/{sample}.snp_sites_to_keep.txt"
+        vcf_file_prefix = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2",
+        max_missing_fraction_per_snp = config["vcftools"]["snp"]["max_missing_fraction_per_snp_site"],
+        #miss_prefix = WORKING_DIR + "filtered/{sample}.missing_snp",
+        #miss_file = WORKING_DIR + "filtered/{sample}.missing_snp.lmiss",
+        #snps_to_keep = WORKING_DIR + "filtered/{sample}.snp_sites_to_keep.txt"
     threads: config["threads"]
-    run:
-        # identify SNP sites to keep based on max. percentage of missing allowed
-        vcftools_cmd = "vcftools --gzvcf " + input.vcf + " --missing-site --out " + params.miss_prefix
-        subprocess.run(vcftools_cmd, shell=True, check=True)
-        # Extract SNP site info (CHR, POS) if F_MISS < max_missing_fraction_per_snp
-        miss_data = pd.read_csv(params.miss_file, sep="\t")
-        miss_data['F_MISS'] = pd.to_numeric(miss_data['F_MISS'], errors='coerce')
-        miss_data_filtered = miss_data[miss_data['F_MISS'] < float(params.max_missing_fraction_per_snp)]
-        miss_data_filtered_chr_pos = miss_data_filtered.iloc[:,0:2] 
-        miss_data_filtered_chr_pos.to_csv(path_or_buf=params.snps_to_keep, sep='\t', header=False, index=False)  
-        # filter the VCF file accordingly
-        bcftools_cmd = "bcftools index " + input.vcf + "; bcftools view -R " + params.snps_to_keep + " " + input.vcf + " -Oz -o " + output.vcf + " --threads " + str(threads)
-        subprocess.run(bcftools_cmd, shell=True, check=True)
+    shell:
+        "vcftools --max-missing {params.max_missing_fraction_per_snp} --gzvcf {input.vcf} --recode --recode-INFO-all --out {params.vcf_file_prefix} "
 
 ############################
 ## Filter on MAF, F_MISSING 
@@ -167,7 +157,7 @@ rule step3_filter_on_fraction_missing_per_snp:
 
 rule step4_filter_on_maf_before_imputation: 
     input:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.recode.vcf"
     output:
         WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.vcf.gz"
     message:
@@ -443,7 +433,7 @@ rule merge_all_step_counts:
     input:
         expand(WORKING_DIR + "counts/{sample}.step{step}.csv",
         sample=SAMPLES, 
-        step=[0, 1, 2, 3, 4, 5, 6, 7])
+        step=[0, 1, 2, 3, 4, 5, 6])
     output:
         RES_DIR + "counts/counts_merged.csv"
     message:

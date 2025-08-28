@@ -17,6 +17,12 @@ samples: config/samples.tsv # tab-separated file with VCF file(s) and associated
 # write "all" to keep all individuals
 individuals: config/individuals.tsv # has to end with .tsv
 
+
+# vcftools parameters
+vcftools:
+  snp: 
+    max_missing_fraction_per_snp_site: "0.2" # max fraction of missing genotypes (lower than or equal to; <=)
+
 # bcftools parameters: 
 # First filters: parameters for filtering on SNP sites (common for all individuals)
 # Second filters: parameters for each genotype (on all or a subset of individuals)
@@ -25,7 +31,6 @@ bcftools:
     min_snp_quality:                     "30" # QUAL field
     min_snp_depth:                       "5" # minimum depth of coverage  per SNP site(lower than or equal to; <=)
     mean_depth_per_snp_site:             "10" # mean depth of coverage per SNP site (lower than or equal to; <=)
-    max_missing_fraction_per_snp_site:   "0.2" # max fraction of missing SNPs (lower than or equal to; <=) 
   individuals:
     min_ind_depth:                       "5"    # minimum depth of coverage per sample (lower than or equal to; <=)
     min_genotype_quality:                "30"   # minimum genotype quality (lower than or equal to; <=)
