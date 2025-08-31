@@ -39,7 +39,14 @@ def get_vcf_file(wildcards):
 ####################
 ## Desired outputs
 ####################
-FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz", sample = SAMPLES) 
+
+if config["impute_genotypes"] == "yes":
+    FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz", sample = SAMPLES) 
+elif config["impute_genotypes"] == "no":
+    FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_no_imputed.vcf.gz", sample = SAMPLES) 
+else: 
+    raise ValueError("The 'impute_genotypes' parameter in the config file must be either 'yes' or 'no'.")
+
 ALL_COUNTS =  RES_DIR + "counts/counts_merged.csv"
 
 if config["keep_temp_dir"] == True:
@@ -166,7 +173,7 @@ rule step4_filter_on_maf_before_imputation:
         min_maf = config["bcftools"]["individuals"]["min_maf_before_imputation"]
     threads: config["threads"]
     shell:
-        "bcftools view -i 'MAF > {params.min_maf}' --threads {threads} "
+        "bcftools filter --include 'MAF > {params.min_maf}' --threads {threads} "
         "{input} "
         "-Oz "
         "-o {output}"
@@ -177,12 +184,13 @@ rule step5_filter_fraction_missing_per_genotype:
     output:
         WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz"
     message:
-        "Step5: filtering {wildcards.sample} biallelic VCF file on percentage of missing genotype calls"
+        "Step5: exclude genotypes from {wildcards.sample} VCF file if percentage of missing genotype calls is higher than {params.missing}"
     params:
         missing = config["bcftools"]["individuals"]["max_missing_fraction_per_genotype"]
     threads: config["threads"]
     shell:
-        "bcftools view -i 'F_MISSING < {params.missing}' --threads {threads} "
+        "bcftools view --exclude 'F_PASS(GT=\"mis\")' > {params.missing} "
+        #"bcftools filter --exclude 'F_MISSING > {params.missing}' --threads {threads} "
         "{input} "
         "-Oz "
         "-o {output}"
@@ -239,32 +247,38 @@ rule calculate_individuals_heterozygosity_rates:
             input_genotypes_tsv=input.genotypes,
             out_individuals_het_rates_tsv=params.out_individuals_het_rates)
 
-rule extract_list_of_individuals_heterozygosity_excess:
+rule extract_list_of_individuals_below_het_threshold:
     input:
         ind_het = WORKING_DIR + "genotypes/{sample}.individuals.heterozygosity_rates.tsv"
     output:
-        ind_het_excess = WORKING_DIR + "genotypes/{sample}.individuals.heterozygosity_excess.list"
+        ind_het_below = WORKING_DIR + "genotypes/{sample}.individuals_below_heterozygosity_threshold.list"
     message:
-        "Extracting individuals with heterozygosity excess from {wildcards.sample} genotypes"
+        "Extracting individuals that are below heterozygosity threshold from {wildcards.sample} genotypes"
     params:
-        max_het = config["bcftools"]["individuals"]["max_heterozygosity"]
+        max_het = config["bcftools"]["individuals"]["max_heterozygosity"],
+        out_path = WORKING_DIR + "genotypes/{sample}.individuals_below_heterozygosity_threshold.list"
     threads: 1
-    shell:
-        "awk -v OFS='\\t' '{{if ($3 < {params.max_het}) print $1}}' {input.ind_het} > {output.ind_het_excess}"
+    run:
+        het = pd.read_csv(input.ind_het, sep="\t", index_col=None)
+        max_het_rate_allowed = params.max_het
+        filtered_het = het[het['heterozygosity_rate'] < float(params.max_het)]
+        individuals_to_keep = filtered_het.individual_id
+        individuals_to_keep.to_csv(params.out_path, index=False, header=False)
 
-rule step6_filter_on_heterozygosity_excess:
+rule step6_filter_on_heterozygosity_rate:
     input:
         vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz",
-        ind_het_excess = WORKING_DIR + "genotypes/{sample}.individuals.heterozygosity_excess.list"
+        ind_het_below = WORKING_DIR + "genotypes/{sample}.individuals_below_heterozygosity_threshold.list"
     output:
         vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
     message:
-        "Step6: filtering {wildcards.sample} VCF file on heterozygosity excess"
+        "Step6: filtering {wildcards.sample} VCF file to keep individuals below {params.het_rate_threshold} heterozygosity rate"
     params:
-        het_excess = WORKING_DIR + "genotypes/{sample}.individuals.heterozygosity_excess.list"
+        het_excess = WORKING_DIR + "genotypes/{sample}.individuals_below_heterozygosity_threshold.list",
+        het_rate_threshold = config["bcftools"]["individuals"]["max_heterozygosity"]
     threads: config["threads"]
     shell:
-        "bcftools view -S {input.ind_het_excess} --threads {threads} "
+        "bcftools view -S {input.ind_het_below} --threads {threads} "
         "{input.vcf} "
         "-Oz "
         "-o {output.vcf}"
@@ -273,21 +287,35 @@ rule step6_filter_on_heterozygosity_excess:
 ## Impute missing genotypes using Beagle v5
 ###########################################
 
-rule step7_impute_missing_genotypes:
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
-    output:
-        vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
-    message:
-        "Step7: imputing missing genotypes in {wildcards.sample} VCF file using Beagle v5"
-    params:
-        beagle_memory = config["beagle"]["memory"],
-        beagle_impute = config["beagle"]["impute"]
-    threads: config["threads"]
-    shell:
-        "beagle gt={input.vcf} "
-        "out={output.vcf} "
-        "nthreads={threads}"
+if config["impute_genotypes"] == "yes":
+    rule step7_impute_missing_genotypes:
+        input:
+            vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
+        output:
+            vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
+        message:
+            "Step7: imputing missing genotypes in {wildcards.sample} VCF file using Beagle v5"
+        params:
+            beagle_memory = config["beagle"]["memory"],
+            beagle_impute = config["beagle"]["impute"]
+        threads: config["threads"]
+        shell:
+            "beagle gt={input.vcf} "
+            "out={output.vcf} "
+            "nthreads={threads}"
+elif config["impute_genotypes"] == "no":
+    rule step7_no_imputation:
+        input:
+            vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
+        output:
+            vcf = RES_DIR + "filtered/{sample}_filtered_no_imputed.vcf.gz"
+        message:
+            "Step7: not imputing missing genotypes in {wildcards.sample} VCF file; copying file from step 6 in {RES_DIR}"
+        threads: config["threads"]
+        shell:
+            "cp {input.vcf} {output.vcf}"
+else: 
+    raise ValueError("The 'impute_genotypes' parameter in the config file must be either 'yes' or 'no'.")
 
 #####################
 ## SNP counts metrics

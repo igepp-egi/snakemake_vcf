@@ -3,7 +3,10 @@ temp_dir: "scratch/"       # will be removed in the end. Store your intermediate
 keep_temp_dir: true  # if true, the temp directory will be kept at the end of the run
 result_dir: "results/"     # will be kept.
 
-threads: 20                # number of threads to use
+threads: 10                # number of threads to use
+
+# are genotypes imputed?
+impute_genotypes: "no" # "yes or no"
 
 # Sample file: one per line
 # Format: # sample_name  [tab]  vcf_file
@@ -21,7 +24,7 @@ individuals: config/individuals.tsv # has to end with .tsv
 # vcftools parameters
 vcftools:
   snp: 
-    max_missing_fraction_per_snp_site: "0.2" # max fraction of missing genotypes (lower than or equal to; <=)
+    max_missing_fraction_per_snp_site: "0.8" # 0 to 1 value; 0 allows SNP sites that are completely missing and 1 indicates no missing data allowed.
 
 # bcftools parameters: 
 # First filters: parameters for filtering on SNP sites (common for all individuals)
@@ -36,8 +39,8 @@ bcftools:
     min_genotype_quality:                "30"   # minimum genotype quality (lower than or equal to; <=)
     min_maf_before_imputation:           "0.01" # minimum minor allele frequency (higher than or equal to; >=) before imputation
     min_maf_after_imputation:            "0.05" # minimum minor allele frequency (higher than or equal to; >=) after imputation
-    max_missing_fraction_per_genotype:   "0.1"  # max fraction of missing genotype calls (lower than or equal to; <=) 
-    max_heterozygosity:                  "0.15" # max fraction of heterozygous genotypes (depending on the reproduction mode: allogamous or autogamous)
+    max_missing_fraction_per_genotype:   "0"    # max fraction of missing genotype calls (exclude if higher than or equal to; <=) 
+    max_heterozygosity:                  "0.01" # max fraction of heterozygous genotypes (depending on the reproduction mode: allogamous or autogamous)
 
 # Beagle v5 parameters:
 beagle: 
