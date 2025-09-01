@@ -145,18 +145,20 @@ rule step3_filter_on_fraction_missing_per_snp:
     input:
         vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.vcf.gz"
     output:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.recode.vcf"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
     message:
-        "Step3: filtering {wildcards.sample}  biallelic VCF file to keep SNP with less than {params.max_missing_fraction_per_snp} fraction missing"
+        "Step3: filtering {wildcards.sample}  biallelic VCF file to keep SNP with a minimum call rate percentage of {params.max_missing_fraction_per_snp}"
     params:
         vcf_file_prefix = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2",
-        max_missing_fraction_per_snp = config["vcftools"]["snp"]["max_missing_fraction_per_snp_site"],
-        #miss_prefix = WORKING_DIR + "filtered/{sample}.missing_snp",
-        #miss_file = WORKING_DIR + "filtered/{sample}.missing_snp.lmiss",
-        #snps_to_keep = WORKING_DIR + "filtered/{sample}.snp_sites_to_keep.txt"
+        vcf_file_complete_name = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf",
+        max_missing_fraction_per_snp = config["vcftools"]["snp"]["max_missing_fraction_per_snp_site"] # more a calling rate with 0 (allow completely missing) to 1 (no missing)
     threads: config["threads"]
     shell:
-        "vcftools --max-missing {params.max_missing_fraction_per_snp} --gzvcf {input.vcf} --recode --recode-INFO-all --out {params.vcf_file_prefix} "
+        "vcftools --max-missing {params.max_missing_fraction_per_snp} --gzvcf {input.vcf} --recode --recode-INFO-all --out {params.vcf_file_prefix} ;"
+        # rename to remove the recode extension and produce a .gz file
+        "mv {params.vcf_file_prefix}.recode.vcf {params.vcf_file_prefix}.vcf ;"
+        # compress using gzip
+        "gzip {params.vcf_file_complete_name} ;"
 
 ############################
 ## Filter on MAF, F_MISSING 
@@ -164,7 +166,7 @@ rule step3_filter_on_fraction_missing_per_snp:
 
 rule step4_filter_on_maf_before_imputation: 
     input:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.recode.vcf"
+        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
     output:
         WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.vcf.gz"
     message:
@@ -189,8 +191,7 @@ rule step5_filter_fraction_missing_per_genotype:
         missing = config["bcftools"]["individuals"]["max_missing_fraction_per_genotype"]
     threads: config["threads"]
     shell:
-        "bcftools view --exclude 'F_PASS(GT=\"mis\")' > {params.missing} "
-        #"bcftools filter --exclude 'F_MISSING > {params.missing}' --threads {threads} "
+        "bcftools view --exclude 'F_PASS(GT=\"mis\") > {params.missing}' "
         "{input} "
         "-Oz "
         "-o {output}"
@@ -374,7 +375,7 @@ rule count_after_step2_snp_filters:
 
 rule count_after_step3_frac_missing_per_snp: 
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.recode.vcf"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step3.csv"
     message:
