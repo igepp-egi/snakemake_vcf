@@ -37,3 +37,20 @@ def count_variants_by_type(vcf_file_path, n_threads=1, step_name="step01"):
     }
     variant_counts_df = pd.DataFrame.from_dict(variant_counts, orient='columns')
     return variant_counts_df
+
+# Count the number of individuals in a VCF file using cyvcf2
+def count_individuals(vcf_file, n_threads=1, step_name="step01"):
+    """
+    Count the number of individuals (samples) in a VCF file using cyvcf2
+    
+    Args:
+        vcf_file (str): Path to the VCF file
+    
+    Returns:
+        int: Number of individuals/samples in the VCF file
+    """
+    vcf_reader = VCF(vcf_file, threads=n_threads)
+    # create a pandas df to hope the results
+    res_dict = {'step': step_name, 'n_individuals': len(vcf_reader.samples)}
+    df = pd.DataFrame.from_records([res_dict])
+    return df

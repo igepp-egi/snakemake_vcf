@@ -15,9 +15,9 @@ impute_genotypes: "no" # "yes or no"
 # vfaba_raw	vcf_files/test.vcf.gz
 samples: config/samples.tsv # tab-separated file with VCF file(s) and associated short names
 
-# optional tsv file with individuals to keep;
+# tsv file with individuals to keep;
 # one column with individuals, one individual per line (no header)
-# write "all" to keep all individuals
+# use 'bcftools query -l my_vcf_file > individuals.tsv' to generate the complete list of individuals from your VCF file.
 individuals: config/individuals.tsv # has to end with .tsv
 
 
@@ -38,11 +38,12 @@ bcftools:
     min_ind_depth:                       "5"    # minimum depth of coverage per sample (lower than or equal to; <=)
     min_genotype_quality:                "30"   # minimum genotype quality (lower than or equal to; <=)
     min_maf_before_imputation:           "0.05" # minimum minor allele frequency (higher than or equal to; >=) before imputation
-#    min_maf_after_imputation:            "0.05" # minimum minor allele frequency (higher than or equal to; >=) after imputation
     max_missing_fraction_per_genotype:   "0.1"    # max fraction of missing genotype calls (exclude if higher than or equal to; <=) 
     max_heterozygosity:                  "0.15" # max fraction of heterozygous genotypes (depending on the reproduction mode: allogamous or autogamous)
+    # if impute_genotypes == "yes" is chosen 
+    min_maf_after_imputation:            "0.05" # minimum minor allele frequency (higher than or equal to; >=) after imputation
 
-# Beagle v5 parameters:
+# Beagle v5 parameters (if impute_genotypes == "yes" is chosen):
 beagle: 
   memory: "4G" # memory for Beagle (e.g. 4G, 8G, 16G, etc.)
   impute: true # if true, Beagle will be used to impute missing genotypes
