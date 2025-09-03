@@ -1,0 +1,28 @@
+step,snp_variant_count,indel_variant_count,sv_variant_count
+step0: raw file,995962,0,0
+step1: biallelic SNPs,897623,0,0
+step2: filters on SNPs,365900,0,0
+step3: filter on fraction missing per SNP,365816,0,0
+step4: MAF filter,250787,0,0
+step5: filter on fraction missing per genotype,250787,0,0
+step6: filter on heterozygosity excess,250787,0,0
+
+vcftools:
+  snp: 
+    max_missing_fraction_per_snp_site: "0.2" # 0 to 1 value; 0 allows SNP sites that are completely missing and 1 indicates no missing data allowed.
+
+# bcftools parameters: 
+# First filters: parameters for filtering on SNP sites (common for all individuals)
+# Second filters: parameters for each genotype (on all or a subset of individuals)
+bcftools:
+  snp: 
+    min_snp_quality:                     "30" # QUAL field
+    min_snp_depth:                       "5" # minimum depth of coverage  per SNP site(lower than or equal to; <=)
+    mean_depth_per_snp_site:             "10" # mean depth of coverage per SNP site (lower than or equal to; <=)
+  individuals:
+    min_ind_depth:                       "5"    # minimum depth of coverage per sample (lower than or equal to; <=)
+    min_genotype_quality:                "30"   # minimum genotype quality (lower than or equal to; <=)
+    min_maf_before_imputation:           "0.01" # minimum minor allele frequency (higher than or equal to; >=) before imputation
+    min_maf_after_imputation:            "0.05" # minimum minor allele frequency (higher than or equal to; >=) after imputation
+    max_missing_fraction_per_genotype:   "0.01"  # max fraction of missing genotype calls (lower than or equal to; <=) 
+    max_heterozygosity:                  "0.15" # max fraction of heterozygous genotypes (depending on the reproduction mode: allogamous or autogamous)
