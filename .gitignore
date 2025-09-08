@@ -183,3 +183,7 @@ vcf_files/PEAMUST_vfaba_F1_SNP_imputed_MAF5.vcf.gz
 vcf_files/vfaba_hedin_peamust_SNP_GATK.vcf.gz
 scratch/
 results/
+vcf_files/test1M.vcf.gz
+vcf_files/PEAMUST_vfaba_F1_SNP_imputed_MAF5.vcf
+.vscode/
+.DS_Store
