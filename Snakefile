@@ -126,10 +126,11 @@ rule step2_filter_snp_sites:
     params:
         min_snp_quality = config["bcftools"]["snp"]["min_snp_quality"],
         min_snp_depth = config["bcftools"]["snp"]["min_snp_depth"],
-        mean_depth_per_snp_site = config["bcftools"]["snp"]["mean_depth_per_snp_site"]
+        mean_depth_per_snp_site = config["bcftools"]["snp"]["mean_depth_per_snp_site"],
+        max_snp_depth = config["bcftools"]["snp"]["max_snp_depth"]
     threads: config["threads"]
     shell:
-        "bcftools view --include 'QUAL >= {params.min_snp_quality} && (FORMAT/DP) >= {params.min_snp_depth} && MEAN(FMT/DP) >= {params.mean_depth_per_snp_site}' "
+        "bcftools view --include 'QUAL >= {params.min_snp_quality} && (FORMAT/DP) >= {params.min_snp_depth} && MEAN(FMT/DP) >= {params.mean_depth_per_snp_site} && (FORMAT/DP) <= {params.max_snp_depth}' "
         "--threads {threads} "
         "{input} "
         "-Oz "

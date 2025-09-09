@@ -31,14 +31,15 @@ vcftools:
 # Second filters: parameters for each genotype (on all or a subset of individuals)
 bcftools:
   snp: 
-    min_snp_quality:                     "30" # QUAL field
-    min_snp_depth:                       "5" # minimum depth of coverage  per SNP site(lower than or equal to; <=)
-    mean_depth_per_snp_site:             "10" # mean depth of coverage per SNP site (lower than or equal to; <=)
+    min_snp_quality:                     "30"   # QUAL field
+    min_snp_depth:                       "5"    # minimum depth of coverage  per SNP site (SNP site eliminated if lower than or equal to; <=)
+    max_snp_depth:                       "200"  # maximum depth of coverage per SNP site (SNP site eliminated if higher than or equal to; >=)
+    mean_depth_per_snp_site:             "10"   # mean depth of coverage per SNP site (lower than or equal to; <=)
   individuals:
     min_ind_depth:                       "5"    # minimum depth of coverage per sample (lower than or equal to; <=)
     min_genotype_quality:                "30"   # minimum genotype quality (lower than or equal to; <=)
     min_maf_before_imputation:           "0.05" # minimum minor allele frequency (higher than or equal to; >=) before imputation
-    max_missing_fraction_per_genotype:   "0.1"    # max fraction of missing genotype calls (exclude if higher than or equal to; <=) 
+    max_missing_fraction_per_genotype:   "0.1"  # max fraction of missing genotype calls (exclude if higher than or equal to; <=) 
     max_heterozygosity:                  "0.15" # max fraction of heterozygous genotypes (depending on the reproduction mode: allogamous or autogamous)
     # if impute_genotypes == "yes" is chosen 
     min_maf_after_imputation:            "0.05" # minimum minor allele frequency (higher than or equal to; >=) after imputation
