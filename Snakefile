@@ -43,15 +43,18 @@ def get_vcf_file(wildcards):
 if config["impute_genotypes"] == "yes":
     FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz", sample = SAMPLES) 
 elif config["impute_genotypes"] == "no":
-    FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_no_imputed.vcf.gz", sample = SAMPLES) 
+    FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_not_imputed.vcf.gz", sample = SAMPLES) 
 else: 
     raise ValueError("The 'impute_genotypes' parameter in the config file must be either 'yes' or 'no'.")
 
 ALL_COUNTS =  expand(RES_DIR + "counts/counts_merged.{type_of_counts}.csv", type_of_counts=["snp","ind"])
 
+GENOTYPES = expand(RES_DIR + "genotypes_final_step/{sample}.genotypes.tsv", sample = SAMPLES)
+
 if config["keep_temp_dir"] == True:
     rule all:
         input:
+            GENOTYPES,
             FILTERED_VCF, 
             ALL_COUNTS
         message: "All done! Temporary directory will be kept."
@@ -63,8 +66,7 @@ else:
         input:
             FILTERED_VCF, 
             ALL_COUNTS,
-            GENOTYPES, 
-            BED
+            GENOTYPES
         message: "All done!"
         shell:
             "rm -r {WORKING_DIR}/;"
@@ -208,14 +210,14 @@ rule step5_filter_fraction_missing_per_genotype:
 ## 6.3: filter on heterozygoty excess
 #####################################################################
 
-rule extract_individuals_and_genotypes:
+rule extract_individuals_and_genotypes_at_step6:
     input: 
         vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz"
     output: 
         individuals = WORKING_DIR + "genotypes/{sample}.list_individuals.csv",
         genotypes = WORKING_DIR + "genotypes/{sample}.genotypes.GT.FORMAT" 
     message:
-        "Extracting genotypes and individuals for {wildcards.sample} from {input.vcf} VCF file"
+        "Extracting genotypes and individuals for {wildcards.sample} from {input.vcf} VCF file at step 6"
     params: 
         out_prefix = WORKING_DIR + "genotypes/{sample}.genotypes"
     threads: 1
@@ -223,14 +225,14 @@ rule extract_individuals_and_genotypes:
         "bcftools query --list-samples {input.vcf} > {output.individuals};"
         "vcftools --gzvcf {input.vcf} --extract-FORMAT-info GT --out {params.out_prefix} "
             
-rule add_individuals_to_genotypes_tsv:
+rule add_individuals_to_genotypes_tsv_at_step6:
     input:
         individuals = WORKING_DIR + "genotypes/{sample}.list_individuals.csv",
         genotypes = WORKING_DIR + "genotypes/{sample}.genotypes.GT.FORMAT"
     output:
         WORKING_DIR + "genotypes/{sample}.genotypes.tsv"
     message:
-        "Create the {wildcards.sample} genotype tsv file"
+        "Create the {wildcards.sample} genotype tsv file at step 6"
     params:
         output_file_path = WORKING_DIR + "genotypes/{sample}.genotypes.tsv"
     threads: 1
@@ -316,7 +318,7 @@ elif config["impute_genotypes"] == "no":
         input:
             vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
         output:
-            vcf = RES_DIR + "filtered/{sample}_filtered_no_imputed.vcf.gz"
+            vcf = RES_DIR + "filtered/{sample}_filtered_not_imputed.vcf.gz"
         message:
             "Step7: not imputing missing genotypes in {wildcards.sample} VCF file; copying file from step 6 in {RES_DIR}"
         threads: config["threads"]
@@ -624,7 +626,7 @@ if config["impute_genotypes"] == "yes":
             count_df.to_csv(output.n_individuals, index=False)  
 
 ##################################
-# All counts: SNPs
+# All counts: SNPs and individuals
 ##################################
 
 if config["impute_genotypes"] == "yes":
@@ -667,9 +669,7 @@ elif config["impute_genotypes"] == "no":
             counts_df = pd.concat(counts_df, axis=0)
             counts_df.to_csv(path_or_buf=params.out_path, index=True)
 
-##################################
-# All counts: individuals
-##################################
+
 
 if config["impute_genotypes"] == "yes":
     rule merge_individual_counts_from_all_steps:
@@ -714,4 +714,54 @@ elif config["impute_genotypes"] == "no":
             counts_df = pd.concat(counts_df, axis=0)
             counts_df.to_csv(path_or_buf=params.out_path, index=True)
 
-        
+#########################################################
+# Extract final genotypes in tsv format from filtered VCF        
+##########################################################
+
+if config["impute_genotypes"] == "yes":
+    rule extract_individuals_and_genotypes_from_final_vcf:
+        input: 
+            vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
+        output: 
+            individuals = WORKING_DIR + "genotypes_final_step/{sample}.list_individuals.csv",
+            genotypes = WORKING_DIR + "genotypes_final_step/{sample}.genotypes.GT.FORMAT" 
+        message:
+            "Extracting genotypes and individuals for {wildcards.sample} from {input.vcf} VCF file"
+        params: 
+            out_prefix = WORKING_DIR + "genotypes_final_step/{sample}.genotypes"
+        threads: 1
+        shell:
+            "bcftools query --list-samples {input.vcf} > {output.individuals};"
+            "vcftools --gzvcf {input.vcf} --extract-FORMAT-info GT --out {params.out_prefix} "
+elif config["impute_genotypes"] == "no":
+    rule extract_individuals_and_genotypes_from_final_vcf:
+        input: 
+            vcf = RES_DIR + "filtered/{sample}_filtered_not_imputed.vcf.gz"
+        output: 
+            individuals = WORKING_DIR + "genotypes_final_step/{sample}.list_individuals.csv",
+            genotypes = WORKING_DIR + "genotypes_final_step/{sample}.genotypes.GT.FORMAT" 
+        message:
+            "Extracting genotypes and individuals for {wildcards.sample} from {input.vcf} VCF file"
+        params: 
+            out_prefix = WORKING_DIR + "genotypes_final_step/{sample}.genotypes"
+        threads: 1
+        shell:
+            "bcftools query --list-samples {input.vcf} > {output.individuals};"
+            "vcftools --gzvcf {input.vcf} --extract-FORMAT-info GT --out {params.out_prefix} "
+
+rule create_final_genotypes_tsv:
+    input:
+        individuals = WORKING_DIR + "genotypes_final_step/{sample}.list_individuals.csv",
+        genotypes = WORKING_DIR + "genotypes_final_step/{sample}.genotypes.GT.FORMAT"
+    output:
+        RES_DIR + "genotypes_final_step/{sample}.genotypes.tsv"
+    message:
+        "Create the {wildcards.sample} genotype tsv file from the final filtered VCF"
+    params:
+        output_file_path = RES_DIR + "genotypes_final_step/{sample}.genotypes.tsv"
+    threads: 1
+    run:
+        create_genotype_tsv(
+            genotypes_tsv=input.genotypes, 
+            individuals_csv=input.individuals, 
+            output_tsv=params.output_file_path)
