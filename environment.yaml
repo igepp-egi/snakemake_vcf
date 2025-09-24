@@ -11,4 +11,5 @@ dependencies:
   - vcftools=0.1.17
   - plink=1.90b7.7
   - beagle=5.4
+  - samtools=1.21
 

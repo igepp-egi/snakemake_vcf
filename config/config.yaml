@@ -20,6 +20,10 @@ samples: config/samples.tsv # tab-separated file with VCF file(s) and associated
 # use 'bcftools query -l my_vcf_file > individuals.tsv' to generate the complete list of individuals from your VCF file.
 individuals: config/individuals.tsv # has to end with .tsv
 
+# List of chromosomes to keep;
+# one chromosome per line (no header)
+# use 'bcftools query -f '%CHROM\n' my_vcf_file | sort | uniq > chromosomes.tsv' to generate the complete list of chromosomes from your VCF file.
+chromosomes: config/chromosomes.tsv # has to end with .tsv
 
 # vcftools parameters
 vcftools:

@@ -31,10 +31,17 @@ if not os.path.exists(WORKING_DIR):
 samples_df = pd.read_csv(config["samples"], sep = "\t", index_col = 0)
 SAMPLES = samples_df.index.values.tolist()
 
-# get fastq file
+# get VCF file
 def get_vcf_file(wildcards):
     vcf_file = samples_df.loc[wildcards.sample,"vcf"]
     return vcf_file
+
+# Small functions that reads a chromosome list file and returns a list of chromosomes separated by commas
+
+def get_chromosomes():
+    with open(config["chromosomes"], "r") as f:
+        chromosomes = f.read().strip().split("\n")
+    return ",".join(chromosomes)
 
 ####################
 ## Desired outputs
@@ -48,7 +55,6 @@ else:
     raise ValueError("The 'impute_genotypes' parameter in the config file must be either 'yes' or 'no'.")
 
 ALL_COUNTS =  expand(RES_DIR + "counts/counts_merged.{type_of_counts}.csv", type_of_counts=["snp","ind"])
-
 GENOTYPES = expand(RES_DIR + "genotypes_final_step/{sample}.genotypes.tsv", sample = SAMPLES)
 
 if config["keep_temp_dir"] == True:
@@ -75,11 +81,12 @@ else:
 
 
 
-#############################################################
-## Individuals filters on selected list of genotypes
-#############################################################
 
-rule step0_select_individuals:
+####################################################
+## Step 0: keep selected individuals and chromosomes
+####################################################
+
+rule step0_select_individuals_and_chromosomes:
     input:
         vcf = get_vcf_file
     output:
@@ -87,10 +94,34 @@ rule step0_select_individuals:
     message:
         "Selecting individuals from {wildcards.sample} raw VCF file"
     params:
-        individuals = config["individuals"] # List of individuals to keep ("all" to keep all)
+        individuals = config["individuals"], 
+        # make a comma separated list of chromosomes
+        chromosomes = get_chromosomes()
     threads: config["threads"]
     shell:
-        "bcftools view -S {params.individuals} --threads {threads} "
+        "bcftools view -S {params.individuals} -r {params.chromosomes} "
+        "--threads {threads} "
+        "{input} "
+        "-Oz "
+        "-o {output}"
+
+###################################
+## Step 1: select chromosomes
+###################################
+
+rule step1_select_chromosomes:
+    input:
+        vcf =  WORKING_DIR + "filtered/{sample}.selected.vcf.gz"
+    output:
+        WORKING_DIR + "filtered/{sample}.selected.chr.vcf.gz"
+    message:
+        "Step1: Selecting chromosomes in {wildcards.sample} VCF file"
+    params:
+        chromosomes = get_chromosomes() 
+    threads: config["threads"]
+    shell:
+        "bcftools view -r {params.chromosomes} "
+        "--threads {threads} "
         "{input} "
         "-Oz "
         "-o {output}"
@@ -101,9 +132,9 @@ rule step0_select_individuals:
 
 rule step1_keep_biallelic_snps:
     input:
-        vcf =  WORKING_DIR + "filtered/{sample}.selected.vcf.gz"
+        vcf =  WORKING_DIR + "filtered/{sample}.selected.chr.vcf.gz"
     output:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.vcf.gz"
     message:
         "Step1: Keeping only biallelic SNPs in {wildcards.sample} VCF file"
     threads: config["threads"]
@@ -120,9 +151,9 @@ rule step1_keep_biallelic_snps:
 
 rule step2_filter_snp_sites:
     input:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.vcf.gz"
     output:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.vcf.gz"
     message:
         "Step2: filtering {wildcards.sample} VCF file on SNP depth and SNP quality"
     params:
@@ -145,14 +176,14 @@ rule step2_filter_snp_sites:
 
 rule step3_filter_on_fraction_missing_per_snp:
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.vcf.gz"
     output:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.vcf.gz"
     message:
         "Step3: filtering {wildcards.sample}  biallelic VCF file to keep SNP with a minimum call rate percentage of {params.max_missing_fraction_per_snp}"
     params:
-        vcf_file_prefix = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2",
-        vcf_file_complete_name = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf",
+        vcf_file_prefix = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2",
+        vcf_file_complete_name = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.vcf",
         max_missing_fraction_per_snp = config["vcftools"]["snp"]["max_missing_fraction_per_snp_site"] # more a calling rate with 0 (allow completely missing) to 1 (no missing)
     threads: config["threads"]
     shell:
@@ -168,9 +199,9 @@ rule step3_filter_on_fraction_missing_per_snp:
 
 rule step4_filter_on_maf_before_imputation: 
     input:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.vcf.gz"
     output:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.maf.vcf.gz"
     message:
         "Step4: filtering {wildcards.sample} biallelic VCF file on MAF higher than {params.min_maf}."
     params:
@@ -189,9 +220,9 @@ rule step4_filter_on_maf_before_imputation:
 
 rule step5_filter_fraction_missing_per_genotype:
     input:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.maf.vcf.gz"
     output:
-        WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz"
+        WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.maf.miss.vcf.gz"
     message:
         "Step5: exclude genotypes from {wildcards.sample} VCF file if percentage of missing genotype calls is higher than {params.missing}"
     params:
@@ -212,7 +243,7 @@ rule step5_filter_fraction_missing_per_genotype:
 
 rule extract_individuals_and_genotypes_at_step6:
     input: 
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.maf.miss.vcf.gz"
     output: 
         individuals = WORKING_DIR + "genotypes/{sample}.list_individuals.csv",
         genotypes = WORKING_DIR + "genotypes/{sample}.genotypes.GT.FORMAT" 
@@ -277,10 +308,10 @@ rule extract_list_of_individuals_below_het_threshold:
 
 rule step6_filter_on_heterozygosity_rate:
     input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz",
+        vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.maf.miss.vcf.gz",
         ind_het_below = WORKING_DIR + "genotypes/{sample}.individuals_below_heterozygosity_threshold.list"
     output:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
+        vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
     message:
         "Step6: filtering {wildcards.sample} VCF file to keep individuals below {params.het_rate_threshold} heterozygosity rate"
     params:
@@ -300,7 +331,7 @@ rule step6_filter_on_heterozygosity_rate:
 if config["impute_genotypes"] == "yes":
     rule step7_impute_missing_genotypes:
         input:
-            vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
+            vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
         output:
             vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
         message:
@@ -316,7 +347,7 @@ if config["impute_genotypes"] == "yes":
 elif config["impute_genotypes"] == "no":
     rule step7_no_imputation:
         input:
-            vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
+            vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
         output:
             vcf = RES_DIR + "filtered/{sample}_filtered_not_imputed.vcf.gz"
         message:
@@ -327,392 +358,25 @@ elif config["impute_genotypes"] == "no":
 else: 
     raise ValueError("The 'impute_genotypes' parameter in the config file must be either 'yes' or 'no'.")
 
+
+
 #####################
 ## SNP counts metrics
 #####################
 
-rule count_at_step0_raw_snps:
-    input:
-        vcf = get_vcf_file
-    output:
-        n_snps = WORKING_DIR + "counts/{sample}.step0.snp.csv"
-    message:
-        "Counting initial number SNPs in {wildcards.sample} VCF file (all types, SNPs and indels)"
-    threads: 1
-    params: 
-        step_name = "At step0: N SNPs from raw VCF file"
-    run:
-        count_df = count_variants_by_type(
-            vcf_file_path=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_snps, index=False)
-
-rule count_after_step1_biallelic_snps: 
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.vcf.gz"
-    output:
-        n_snps = WORKING_DIR + "counts/{sample}.step1.snp.csv"
-    message:
-        "Counting number of biallelic SNPs in {wildcards.sample} VCF file"
-    threads: 1
-    params: 
-        step_name = "After step1: N biallelic SNPs"
-    run:
-        count_df = count_variants_by_type(
-            vcf_file_path=input.vcf, 
-            n_threads=threads, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_snps, index=False)
-
-rule count_after_step2_snp_filters:
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.vcf.gz"
-    output:
-        n_snps = WORKING_DIR + "counts/{sample}.step2.snp.csv"
-    message:
-        "Counting number of SNPs after first filters in {wildcards.sample} VCF file"
-    threads: 1
-    params: 
-        step_name = "After step2: N SNPs after qc filters"
-    run:
-        count_df = count_variants_by_type(
-            vcf_file_path=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_snps, index=False)
-
-rule count_after_step3_frac_missing_per_snp: 
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
-    output:
-        n_snps = WORKING_DIR + "counts/{sample}.step3.snp.csv"
-    message:
-        "Counting number of SNPs after filtering on fraction missing per SNP in {wildcards.sample} VCF file"
-    threads: 1
-    params: 
-        step_name = "After step3: N SNPs after filtering on fraction missing per SNP"
-    run:
-        count_df = count_variants_by_type(
-            vcf_file_path=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_snps, index=False)
-
-rule count_after_step4_maf_filter: 
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.vcf.gz"
-    output:
-        n_snps = WORKING_DIR + "counts/{sample}.step4.snp.csv"
-    message:
-        "Counting number of SNPs after MAF filter in {wildcards.sample} VCF file"
-    threads: 1
-    params: 
-        step_name = "After step4: N SNPs after filtering on MAF"
-    run:
-        count_df = count_variants_by_type(
-            vcf_file_path=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_snps, index=False)
-
-rule count_after_step5_frac_missing_per_genotype: 
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz"
-    output:
-        n_snps = WORKING_DIR + "counts/{sample}.step5.snp.csv"
-    message:
-        "Counting number of SNPs after filtering on fraction missing per genotype in {wildcards.sample} VCF file"
-    threads: 1
-    params: 
-        step_name = "After step5: N SNPs after filtering on fraction missing per genotype"
-    run:
-        count_df = count_variants_by_type(
-            vcf_file_path=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_snps, index=False)
-
-rule count_after_step6_het_excess_filter: 
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
-    output:
-        n_snps = WORKING_DIR + "counts/{sample}.step6.snp.csv"
-    message:
-        "Counting number of SNPs after filtering on heterozygosity excess in {wildcards.sample} VCF file"
-    threads: 1
-    params: 
-        step_name = "After step6: N SNPs after filtering on heterozygosity excess"
-    run:
-        count_df = count_variants_by_type(
-            vcf_file_path=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_snps, index=False)
-
-rule count_after_step7_imputation: 
-    input:
-        vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
-    output:
-        n_snps = WORKING_DIR + "counts/{sample}.step7.snp.csv"
-    message:
-        "Counting number of SNPs after imputation in {wildcards.sample} VCF file"
-    threads: 1
-    params: 
-        step_name = "After step7: N SNPs after imputation"
-    run:
-        count_df = count_variants_by_type(
-            vcf_file_path=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_snps, index=False)
+include: "subworkflows/count_snps_at_each_step.smk"
 
 ############################
 ## Individuals counts metrics
 ############################
 
-rule count_individuals_from_raw_vcf:
-    input:
-        vcf = get_vcf_file
-    output:
-        n_individuals = WORKING_DIR + "counts/{sample}.step00.raw.ind.csv"
-    message:
-        "Counting number of individuals in {wildcards.sample} VCF file"
-    threads: 1
-    params: 
-        step_name = "At step0: raw complete VCF"
-    run:
-        count_df = count_individuals(
-            vcf_file=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_individuals, index=False)
-
-rule count_individuals_after_step0_selecting_individuals:
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.vcf.gz"
-    output:
-        n_individuals = WORKING_DIR + "counts/{sample}.step0.ind.csv"
-    message:
-        "Counting number of individuals in {wildcards.sample} VCF file after selecting individuals"
-    threads: 1
-    params: 
-        step_name = "After step0: individual selection"
-    run:
-        count_df = count_individuals(
-            vcf_file=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_individuals, index=False)
-
-rule count_individuals_after_step1_biallelic_snps:
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.vcf.gz"
-    output:
-        n_individuals = WORKING_DIR + "counts/{sample}.step1.ind.csv"
-    message:
-        "Counting number of individuals in {wildcards.sample} VCF file after selecting biallelic SNPs"
-    threads: 1
-    params: 
-        step_name = "After step1: selecting biallelic SNPs"
-    run:
-        count_df = count_individuals(
-            vcf_file=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_individuals, index=False)
-
-rule count_individuals_after_step2_snp_filters:
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.vcf.gz"
-    output:
-        n_individuals = WORKING_DIR + "counts/{sample}.step2.ind.csv"
-    message:
-        "Counting number of individuals in {wildcards.sample} VCF file after SNP quality filters"
-    threads: 1
-    params: 
-        step_name = "After step2: SNP quality QC filters"
-    run:
-        count_df = count_individuals(
-            vcf_file=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_individuals, index=False)
-
-rule count_individuals_after_step3_filter_on_fraction_missing_per_snp:
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.vcf.gz"
-    output:
-        n_individuals = WORKING_DIR + "counts/{sample}.step3.ind.csv"
-    message:
-        "Counting number of individuals in {wildcards.sample} VCF file after SNP quality filters"
-    threads: 1
-    params: 
-        step_name = "After step3: filtering on fraction missing per SNP"
-    run:
-        count_df = count_individuals(
-            vcf_file=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_individuals, index=False)
-
-rule count_individuals_after_step4_filter_on_maf:
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.vcf.gz"
-    output:
-        n_individuals = WORKING_DIR + "counts/{sample}.step4.ind.csv"
-    message:
-        "Counting number of individuals in {wildcards.sample} VCF file after filtering on MAF"
-    threads: 1
-    params: 
-        step_name = "After step4: filtering on MAF"
-    run:
-        count_df = count_individuals(
-            vcf_file=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_individuals, index=False)
-
-rule count_individuals_after_step5_filter_on_fraction_missing_per_genotype:
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.vcf.gz"
-    output:
-        n_individuals = WORKING_DIR + "counts/{sample}.step5.ind.csv"
-    message:
-        "Counting number of individuals in {wildcards.sample} VCF file after filtering on fraction missing per genotype"
-    threads: 1
-    params: 
-        step_name = "After step5: filtering on fraction missing per genotype"
-    run:
-        count_df = count_individuals(
-            vcf_file=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_individuals, index=False)
-
-rule count_individuals_after_step6_filter_on_heterozygosity_excess:
-    input:
-        vcf = WORKING_DIR + "filtered/{sample}.selected.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
-    output:
-        n_individuals = WORKING_DIR + "counts/{sample}.step6.ind.csv"
-    message:
-        "Counting number of individuals in {wildcards.sample} VCF file after filtering on heterozygosity excess"
-    threads: 1
-    params: 
-        step_name = "After step6: filtering on heterozygosity excess"
-    run:
-        count_df = count_individuals(
-            vcf_file=input.vcf, 
-            n_threads=1, 
-            step_name=params.step_name)
-        count_df.to_csv(output.n_individuals, index=False)
-
-if config["impute_genotypes"] == "yes":
-    rule count_individuals_after_step7_imputation:
-        input:
-            vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
-        output:
-            n_individuals = WORKING_DIR + "counts/{sample}.step7.ind.csv"
-        message:
-            "Counting number of individuals in {wildcards.sample} VCF file after imputation"
-        threads: 1
-        params: 
-            step_name = "After step7: SNP imputation"
-        run:
-            count_df = count_individuals(
-                vcf_file=input.vcf, 
-                n_threads=1, 
-                step_name=params.step_name)
-            count_df.to_csv(output.n_individuals, index=False)  
+include: "subworkflows/count_individuals_at_each_step.smk"
 
 ##################################
 # All counts: SNPs and individuals
 ##################################
 
-if config["impute_genotypes"] == "yes":
-    rule merge_snp_counts_from_all_steps: 
-        input:
-            expand(WORKING_DIR + "counts/{sample}.step{step}.snp.csv",
-            sample=SAMPLES, 
-            step=[00,0, 1, 2, 3, 4, 5, 6, 7])
-        output:
-            RES_DIR + "counts/counts_merged.snp.csv"
-        message:
-        "Merging all SNP counts from different steps into a summary file"
-        params: 
-            out_path = RES_DIR + "counts/counts_merged.snp.csv"
-        threads: 1
-        run:
-            counts_df = []
-            for f in input:
-                df = pd.read_csv(f, index_col=0).head() 
-                counts_df.append(df)
-            counts_df.to_csv(path_or_buf=params.out_path, index=True)
-elif config["impute_genotypes"] == "no":
-    rule merge_snp_counts_from_all_steps: 
-        input:
-            expand(WORKING_DIR + "counts/{sample}.step{step}.snp.csv",
-            sample=SAMPLES, 
-            step=[00, 0, 1, 2, 3, 4, 5, 6])
-        output:
-            RES_DIR + "counts/counts_merged.snp.csv"
-        message:
-            "Merging all SNP counts from different steps into a summary file"
-        params: 
-            out_path = RES_DIR + "counts/counts_merged.snp.csv"
-        threads: 1
-        run:
-            counts_df = []
-            for f in input:
-                df = pd.read_csv(f, index_col=0).head() 
-                counts_df.append(df)
-            counts_df = pd.concat(counts_df, axis=0)
-            counts_df.to_csv(path_or_buf=params.out_path, index=True)
-
-
-
-if config["impute_genotypes"] == "yes":
-    rule merge_individual_counts_from_all_steps:
-        input:
-            expand(WORKING_DIR + "counts/{sample}.step{step}.ind.csv",
-                   sample=SAMPLES,
-                   step=[00, 0, 1, 2, 3, 4, 5, 6, 7])
-        output:
-            RES_DIR + "counts/counts_merged.ind.csv"
-        message:
-            "Merging all individuals counts from different steps into a summary file"
-        params:
-            out_path = RES_DIR + "counts/counts_merged.ind.csv"
-        threads: 1
-        run:
-            counts_df = []
-            for f in input:
-                df = pd.read_csv(f, index_col=0)
-                # add lines to df
-                counts_df.append(df)
-            counts_df = pd.concat(counts_df, axis=0)
-            counts_df.to_csv(path_or_buf=params.out_path, index=True)
-elif config["impute_genotypes"] == "no":
-    rule merge_individual_counts_from_all_steps:
-        input:
-            expand(WORKING_DIR + "counts/{sample}.step{step}.ind.csv",
-                   sample=SAMPLES,
-                   step=[00, 0, 1, 2, 3, 4, 5, 6])
-        output:
-            RES_DIR + "counts/counts_merged.ind.csv"
-        message:
-            "Merging all individuals counts from different steps into a summary file"
-        params:
-            out_path = RES_DIR + "counts/counts_merged.ind.csv"
-        threads: 1
-        run:
-            counts_df = []
-            for f in input:
-                df = pd.read_csv(f, index_col=0)
-                # add lines to df
-                counts_df.append(df)
-            counts_df = pd.concat(counts_df, axis=0)
-            counts_df.to_csv(path_or_buf=params.out_path, index=True)
+include: "subworkflows/count_snps_and_individuals_all_steps.smk"
 
 #########################################################
 # Extract final genotypes in tsv format from filtered VCF        
@@ -765,3 +429,9 @@ rule create_final_genotypes_tsv:
             genotypes_tsv=input.genotypes, 
             individuals_csv=input.individuals, 
             output_tsv=params.output_file_path)
+
+#########################################################
+# Tables for plots
+# Table 1: SNP counts per chromosome and per bin (raw and final filtered VCF)
+# Table 2: Fst per chromosome and per bin (raw and final filtered VCF)        
+##########################################################
