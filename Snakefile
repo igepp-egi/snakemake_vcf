@@ -82,24 +82,23 @@ else:
 
 
 
-####################################################
-## Step 0: keep selected individuals and chromosomes
-####################################################
+#####################################
+## Step 0: keep selected individuals 
+#####################################
 
-rule step0_select_individuals_and_chromosomes:
+rule step0_select_individuals:
     input:
         vcf = get_vcf_file
     output:
         WORKING_DIR + "filtered/{sample}.selected.vcf.gz"
     message:
-        "Selecting individuals from {wildcards.sample} raw VCF file"
+        "Step 0: selecting individuals from {wildcards.sample} raw VCF file"
     params:
-        individuals = config["individuals"], 
-        # make a comma separated list of chromosomes
-        chromosomes = get_chromosomes()
-    threads: config["threads"]
+        individuals = config["individuals"]
+    threads: 
+        config["threads"]
     shell:
-        "bcftools view -S {params.individuals} -r {params.chromosomes} "
+        "bcftools view -S {params.individuals} "
         "--threads {threads} "
         "{input} "
         "-Oz "
@@ -118,8 +117,12 @@ rule step1_select_chromosomes:
         "Step1: Selecting chromosomes in {wildcards.sample} VCF file"
     params:
         chromosomes = get_chromosomes() 
-    threads: config["threads"]
+    threads: 
+        config["threads"]
     shell:
+        # index file
+        "bcftools index {input};"
+        # select chromosomes
         "bcftools view -r {params.chromosomes} "
         "--threads {threads} "
         "{input} "
@@ -193,9 +196,9 @@ rule step3_filter_on_fraction_missing_per_snp:
         # compress using gzip
         "gzip {params.vcf_file_complete_name} ;"
 
-#########################################
+#################################################
 ## Step 4: filter on Minor Allele Frequency (MAF)
-#########################################
+#################################################
 
 rule step4_filter_on_maf_before_imputation: 
     input:

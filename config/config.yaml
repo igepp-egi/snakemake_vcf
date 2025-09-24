@@ -23,7 +23,7 @@ individuals: config/individuals.tsv # has to end with .tsv
 # List of chromosomes to keep;
 # one chromosome per line (no header)
 # use 'bcftools query -f '%CHROM\n' my_vcf_file | sort | uniq > chromosomes.tsv' to generate the complete list of chromosomes from your VCF file.
-chromosomes: config/chromosomes.tsv # has to end with .tsv
+chromosomes: config/chromosome1.tsv # has to end with .tsv
 
 # vcftools parameters
 vcftools:
