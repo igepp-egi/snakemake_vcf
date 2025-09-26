@@ -11,15 +11,17 @@ if config["impute_genotypes"] == "yes":
         output:
             RES_DIR + "counts/counts_merged.snp.csv"
         message:
-        "Merging all SNP counts from different steps into a summary file"
+            "Merging all SNP counts from different steps into a summary file"
         params: 
             out_path = RES_DIR + "counts/counts_merged.snp.csv"
         threads: 1
         run:
-            counts_df = []
+            # create an empty dataframe with Pandas and add each count dataframe to it
+            counts_df = pd.DataFrame()
             for f in input:
                 df = pd.read_csv(f, index_col=0).head() 
-                counts_df.append(df)
+                counts_df = pd.concat([counts_df, df], axis=0)
+            print(counts_df)
             counts_df.to_csv(path_or_buf=params.out_path, index=True)
 elif config["impute_genotypes"] == "no":
     rule merge_snp_counts_from_all_steps: 
@@ -35,11 +37,11 @@ elif config["impute_genotypes"] == "no":
             out_path = RES_DIR + "counts/counts_merged.snp.csv"
         threads: 1
         run:
-            counts_df = []
+            # create an empty dataframe with Pandas and add each count dataframe to it
+            counts_df = pd.DataFrame()
             for f in input:
                 df = pd.read_csv(f, index_col=0).head() 
-                counts_df.append(df)
-            counts_df = pd.concat(counts_df, axis=0)
+                counts_df = pd.concat([counts_df, df], axis=0)
             counts_df.to_csv(path_or_buf=params.out_path, index=True)
 
 ###################
@@ -60,12 +62,11 @@ if config["impute_genotypes"] == "yes":
             out_path = RES_DIR + "counts/counts_merged.ind.csv"
         threads: 1
         run:
-            counts_df = []
+            counts_df = pd.DataFrame()
             for f in input:
                 df = pd.read_csv(f, index_col=0)
                 # add lines to df
-                counts_df.append(df)
-            counts_df = pd.concat(counts_df, axis=0)
+                counts_df = pd.concat([counts_df, df], axis=0)
             counts_df.to_csv(path_or_buf=params.out_path, index=True)
 elif config["impute_genotypes"] == "no":
     rule merge_individual_counts_from_all_steps:
@@ -81,10 +82,9 @@ elif config["impute_genotypes"] == "no":
             out_path = RES_DIR + "counts/counts_merged.ind.csv"
         threads: 1
         run:
-            counts_df = []
+            counts_df = pd.DataFrame()
             for f in input:
                 df = pd.read_csv(f, index_col=0)
                 # add lines to df
-                counts_df.append(df)
-            counts_df = pd.concat(counts_df, axis=0)
+                counts_df = pd.concat([counts_df, df], axis=0)
             counts_df.to_csv(path_or_buf=params.out_path, index=True)

@@ -5,8 +5,8 @@ result_dir: "results/"     # will be kept.
 
 threads: 10                # number of threads to use
 
-# are genotypes imputed?
-impute_genotypes: "no" # "yes or no"
+# are genotypes imputed using beagle ?
+impute_genotypes: "yes" # "yes or no"
 
 # Sample file: one per line
 # Format: # sample_name  [tab]  vcf_file
@@ -28,7 +28,7 @@ chromosomes: config/chromosome1.tsv # has to end with .tsv
 # vcftools parameters
 vcftools:
   snp: 
-    max_missing_fraction_per_snp_site: "0" # 0 to 1 value; 0 allows SNP sites that are completely missing and 1 indicates no missing data allowed. Equivalent to a SNP call rate. 
+    max_missing_fraction_per_snp_site: "1" # 0 to 1 value; 0 allows SNP sites that are completely missing and 1 indicates no missing data allowed. Equivalent to a SNP call rate. 
 
 # bcftools parameters: 
 # First filters: parameters for filtering on SNP sites (common for all individuals)
@@ -39,6 +39,7 @@ bcftools:
     min_snp_depth:                       "5"    # minimum depth of coverage  per SNP site (SNP site eliminated if lower than or equal to; <=)
     max_snp_depth:                       "200"  # maximum depth of coverage per SNP site (SNP site eliminated if higher than or equal to; >=)
     mean_depth_per_snp_site:             "10"   # mean depth of coverage per SNP site (lower than or equal to; <=)
+    max_missing_fraction_per_snp:        "0.05"    # max allowed fraction of missing genotype calls per SNP site (SNP site eliminated if higher than or equal to; <=)
   individuals:
     min_ind_depth:                       "5"    # minimum depth of coverage per sample (lower than or equal to; <=)
     min_genotype_quality:                "30"   # minimum genotype quality (lower than or equal to; <=)

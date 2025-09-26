@@ -48,7 +48,7 @@ def get_chromosomes():
 ####################
 
 if config["impute_genotypes"] == "yes":
-    FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz", sample = SAMPLES) 
+    FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_imputed_maf.vcf.gz", sample = SAMPLES) 
 elif config["impute_genotypes"] == "no":
     FILTERED_VCF = expand(RES_DIR + "filtered/{sample}_filtered_not_imputed.vcf.gz", sample = SAMPLES) 
 else: 
@@ -177,24 +177,42 @@ rule step2_filter_snp_sites:
 ## 0 = allow completely missing, 1 = no missing
 ########################################################################
 
+# rule step3_filter_on_fraction_missing_per_snp:
+#     input:
+#         vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.vcf.gz"
+#     output:
+#         vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.vcf.gz"
+#     message:
+#         "Step3: filtering {wildcards.sample}  biallelic VCF file to keep SNP with a minimum call rate percentage of {params.max_missing_fraction_per_snp}"
+#     params:
+#         vcf_file_prefix = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2",
+#         vcf_file_complete_name = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.vcf",
+#         max_missing_fraction_per_snp = config["vcftools"]["snp"]["max_missing_fraction_per_snp_site"] # more a calling rate with 0 (allow completely missing) to 1 (no missing)
+#     threads: config["threads"]
+#     shell:
+#         "vcftools --max-missing {params.max_missing_fraction_per_snp} --gzvcf {input.vcf} --recode --recode-INFO-all --out {params.vcf_file_prefix} ;"
+#         # rename to remove the recode extension and produce a .gz file
+#         "mv {params.vcf_file_prefix}.recode.vcf {params.vcf_file_prefix}.vcf ;"
+#         # compress using gzip
+#         "gzip {params.vcf_file_complete_name} ;"
+
 rule step3_filter_on_fraction_missing_per_snp:
     input:
         vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.vcf.gz"
     output:
         vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.vcf.gz"
     message:
-        "Step3: filtering {wildcards.sample}  biallelic VCF file to keep SNP with a minimum call rate percentage of {params.max_missing_fraction_per_snp}"
+        "Step3: filtering {wildcards.sample} biallelic VCF file to keep SNP with a minimum call rate percentage of {params.max_missing_fraction_per_snp}"
     params:
-        vcf_file_prefix = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2",
-        vcf_file_complete_name = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.vcf",
-        max_missing_fraction_per_snp = config["vcftools"]["snp"]["max_missing_fraction_per_snp_site"] # more a calling rate with 0 (allow completely missing) to 1 (no missing)
-    threads: config["threads"]
+        max_missing_fraction_per_snp = config["bcftools"]["snp"]["max_missing_fraction_per_snp"]
+    threads: 
+        config["threads"]
     shell:
-        "vcftools --max-missing {params.max_missing_fraction_per_snp} --gzvcf {input.vcf} --recode --recode-INFO-all --out {params.vcf_file_prefix} ;"
-        # rename to remove the recode extension and produce a .gz file
-        "mv {params.vcf_file_prefix}.recode.vcf {params.vcf_file_prefix}.vcf ;"
-        # compress using gzip
-        "gzip {params.vcf_file_complete_name} ;"
+        "bcftools view --exclude 'F_MISSING >= {params.max_missing_fraction_per_snp}' "
+        "--threads {threads} "
+        "{input.vcf} "
+        "-Oz "
+        "-o {output.vcf}"
 
 #################################################
 ## Step 4: filter on Minor Allele Frequency (MAF)
@@ -336,16 +354,17 @@ if config["impute_genotypes"] == "yes":
         input:
             vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.maf.miss.het.vcf.gz"
         output:
-            vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
+            vcf = WORKING_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
         message:
             "Step7: imputing missing genotypes in {wildcards.sample} VCF file using Beagle v5"
         params:
             beagle_memory = config["beagle"]["memory"],
-            beagle_impute = config["beagle"]["impute"]
+            beagle_impute = config["beagle"]["impute"],
+            output_prefix = WORKING_DIR + "filtered/{sample}_filtered_imputed"
         threads: config["threads"]
         shell:
             "beagle gt={input.vcf} "
-            "out={output.vcf} "
+            "out={params.output_prefix} "
             "nthreads={threads}"
 elif config["impute_genotypes"] == "no":
     rule step7_no_imputation:
@@ -361,7 +380,31 @@ elif config["impute_genotypes"] == "no":
 else: 
     raise ValueError("The 'impute_genotypes' parameter in the config file must be either 'yes' or 'no'.")
 
+##################################
+## Filter on MAF after imputation 
+##################################
 
+if config["impute_genotypes"] == "yes":
+    rule step8_filter_on_maf_after_imputation: 
+        input:
+            WORKING_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
+        output:
+            RES_DIR + "filtered/{sample}_filtered_imputed_maf.vcf.gz"
+        message:
+            "Step8: filtering {wildcards.sample} imputed VCF file on MAF higher than {params.min_maf}."
+        params:
+            min_maf = config["bcftools"]["individuals"]["min_maf_after_imputation"]
+        threads: 
+            config["threads"]
+        shell:
+            "bcftools filter --include 'MAF > {params.min_maf}' --threads {threads} "
+            "{input} "
+            "-Oz "
+            "-o {output}"
+elif config["impute_genotypes"] == "no":
+    pass
+else: 
+    raise ValueError("The 'impute_genotypes' parameter in the config file must be either 'yes' or 'no'.")
 
 #####################
 ## SNP counts metrics
@@ -388,7 +431,7 @@ include: "subworkflows/count_snps_and_individuals_all_steps.smk"
 if config["impute_genotypes"] == "yes":
     rule extract_individuals_and_genotypes_from_final_vcf:
         input: 
-            vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
+            vcf = RES_DIR + "filtered/{sample}_filtered_imputed_maf.vcf.gz"
         output: 
             individuals = WORKING_DIR + "genotypes_final_step/{sample}.list_individuals.csv",
             genotypes = WORKING_DIR + "genotypes_final_step/{sample}.genotypes.GT.FORMAT" 
