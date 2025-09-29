@@ -4,7 +4,7 @@ rule count_individuals_at_step0_from_raw_vcf:
     output:
         n_individuals = WORKING_DIR + "counts/{sample}.step0.ind.csv"
     message:
-        "Counting number of individuals in {wildcards.sample} VCF file"
+        "Step 0: Counting number of individuals in {wildcards.sample} VCF file"
     threads: 1
     params: 
         step_name = "At step0: raw complete VCF"
@@ -21,7 +21,7 @@ rule count_individuals_after_step1_selecting_individuals:
     output:
         n_individuals = WORKING_DIR + "counts/{sample}.step1.ind.csv"
     message:
-        "Counting number of individuals in {wildcards.sample} VCF file after selecting individuals"
+        "Step 1: Counting number of individuals in {wildcards.sample} VCF file after selecting individuals"
     threads: 1
     params: 
         step_name = "After step1: individual selection"
@@ -38,7 +38,7 @@ rule count_individuals_after_step2_filtering_on_chromosomes:
     output:
         n_individuals = WORKING_DIR + "counts/{sample}.step2.ind.csv"
     message:
-        "Counting number of individuals in {wildcards.sample} VCF file after filtering on chromosomes"
+        "Step 2: Counting number of individuals in {wildcards.sample} VCF file after filtering on chromosomes"
     threads: 1
     params: 
         step_name = "After step2: filtering on chromosomes"
@@ -72,7 +72,7 @@ rule count_individuals_after_step4_snp_filters:
     output:
         n_individuals = WORKING_DIR + "counts/{sample}.step4.ind.csv"
     message:
-        "Counting number of individuals in {wildcards.sample} VCF file after SNP quality filters"
+        "Step 4: Counting number of individuals in {wildcards.sample} VCF file after SNP quality filters"
     threads: 1
     params: 
         step_name = "After step4: SNP quality QC filters"
@@ -89,7 +89,7 @@ rule count_individuals_after_step5_filter_on_fraction_missing_per_snp:
     output:
         n_individuals = WORKING_DIR + "counts/{sample}.step5.ind.csv"
     message:
-        "Counting number of individuals in {wildcards.sample} VCF file after SNP quality filters"
+        "Step 5: Counting number of individuals in {wildcards.sample} VCF file after SNP quality filters"
     threads: 1
     params: 
         step_name = "After step5: filtering on fraction missing per SNP"
@@ -100,13 +100,13 @@ rule count_individuals_after_step5_filter_on_fraction_missing_per_snp:
             step_name=params.step_name)
         count_df.to_csv(output.n_individuals, index=False)
 
-rule count_individuals_after_step6_filter_on_maf:
+rule count_individuals_after_step6_filter_on_maf_before_imputation:
     input:
         vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.maf.vcf.gz"
     output:
         n_individuals = WORKING_DIR + "counts/{sample}.step6.ind.csv"
     message:
-        "Counting number of individuals in {wildcards.sample} VCF file after filtering on MAF"
+        "Step 6: Counting number of individuals in {wildcards.sample} VCF file after filtering on MAF"
     threads: 1
     params: 
         step_name = "After step6: filtering on MAF"
@@ -123,7 +123,7 @@ rule count_individuals_after_step7_filter_on_fraction_missing_per_genotype:
     output:
         n_individuals = WORKING_DIR + "counts/{sample}.step7.ind.csv"
     message:
-        "Counting number of individuals in {wildcards.sample} VCF file after filtering on fraction missing per genotype"
+        "Step 7: Counting number of individuals in {wildcards.sample} VCF file after filtering on fraction missing per genotype"
     threads: 1
     params: 
         step_name = "After step7: filtering on fraction missing per genotype"
@@ -140,7 +140,7 @@ rule count_individuals_after_step8_filter_on_heterozygosity_excess:
     output:
         n_individuals = WORKING_DIR + "counts/{sample}.step8.ind.csv"
     message:
-        "Counting number of individuals in {wildcards.sample} VCF file after filtering on heterozygosity excess"
+        "Step 8: Counting number of individuals in {wildcards.sample} VCF file after filtering on heterozygosity excess"
     threads: 1
     params: 
         step_name = "After step8: filtering on heterozygosity excess"
@@ -158,7 +158,7 @@ if config["impute_genotypes"] == "yes":
         output:
             n_individuals = WORKING_DIR + "counts/{sample}.step9.ind.csv"
         message:
-            "Counting number of individuals in {wildcards.sample} VCF file after imputation"
+            "Step 9: Counting number of individuals in {wildcards.sample} VCF file after imputation"
         threads: 1
         params: 
             step_name = "After step9: SNP imputation"
@@ -168,3 +168,21 @@ if config["impute_genotypes"] == "yes":
                 n_threads=1, 
                 step_name=params.step_name)
             count_df.to_csv(output.n_individuals, index=False)  
+
+if config["impute_genotypes"] == "yes":
+    rule count_individuals_after_step10_maf_filter_after_imputation:
+        input:
+            vcf = RES_DIR + "filtered/{sample}_filtered_imputed_maf.vcf.gz"
+        output:
+            n_individuals = WORKING_DIR + "counts/{sample}.step10.ind.csv"
+        message:
+            "Step 10: Counting number of individuals in {wildcards.sample} VCF file after MAF filter post-imputation"
+        threads: 1
+        params: 
+            step_name = "After step10: MAF filter post-imputation"
+        run:
+            count_df = count_individuals(
+                vcf_file=input.vcf, 
+                n_threads=1, 
+                step_name=params.step_name)
+            count_df.to_csv(output.n_individuals, index=False)

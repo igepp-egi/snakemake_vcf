@@ -7,7 +7,7 @@ if config["impute_genotypes"] == "yes":
         input:
             expand(WORKING_DIR + "counts/{sample}.step{step}.snp.csv",
             sample=SAMPLES, 
-            step=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+            step=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         output:
             RES_DIR + "counts/counts_merged.snp.csv"
         message:
@@ -53,7 +53,7 @@ if config["impute_genotypes"] == "yes":
         input:
             expand(WORKING_DIR + "counts/{sample}.step{step}.ind.csv",
                    sample=SAMPLES,
-                   step=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+                   step=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         output:
             RES_DIR + "counts/counts_merged.ind.csv"
         message:
