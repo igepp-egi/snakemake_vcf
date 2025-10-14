@@ -12,4 +12,5 @@ dependencies:
   - plink=1.90b7.7
   - beagle=5.4
   - samtools=1.21
+  - bedtools=2.31.1
 

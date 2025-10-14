@@ -39,7 +39,7 @@ bcftools:
     min_snp_depth:                       "5"    # minimum depth of coverage  per SNP site (SNP site eliminated if lower than or equal to; <=)
     max_snp_depth:                       "200"  # maximum depth of coverage per SNP site (SNP site eliminated if higher than or equal to; >=)
     mean_depth_per_snp_site:             "10"   # mean depth of coverage per SNP site (lower than or equal to; <=)
-    max_missing_fraction_per_snp:        "0.05"    # max allowed fraction of missing genotype calls per SNP site (SNP site eliminated if higher than or equal to; <=)
+    max_missing_fraction_per_snp:        "0.05" # max allowed fraction of missing genotype calls per SNP site (SNP site eliminated if higher than or equal to; <=)
   individuals:
     min_ind_depth:                       "5"    # minimum depth of coverage per sample (lower than or equal to; <=)
     min_genotype_quality:                "30"   # minimum genotype quality (lower than or equal to; <=)
