@@ -56,13 +56,15 @@ else:
 
 ALL_COUNTS =  expand(RES_DIR + "counts/counts_merged.{type_of_counts}.csv", type_of_counts=["snp","ind"])
 GENOTYPES = expand(RES_DIR + "genotypes/{sample}.genotypes.tsv", sample = SAMPLES)
+TABLES = expand(RES_DIR + "tables/table01_snp_density/{sample}.snp_density.{type}.tsv", sample = SAMPLES, type=["raw","filtered"])
 
 if config["keep_temp_dir"] == True:
     rule all:
         input:
             GENOTYPES,
             FILTERED_VCF, 
-            ALL_COUNTS
+            ALL_COUNTS,
+            TABLES
         message: "All done! Temporary directory will be kept."
         shell:
             "cp config/config.yaml {RES_DIR}/; "
@@ -72,7 +74,8 @@ else:
         input:
             FILTERED_VCF, 
             ALL_COUNTS,
-            GENOTYPES
+            GENOTYPES,
+            TABLES
         message: "All done!"
         shell:
             "rm -r {WORKING_DIR}/;"
@@ -416,3 +419,23 @@ include: "subworkflows/extract_final_genotypes.smk"
 # Table 2: Fst per chromosome and per bin (raw and final filtered VCF)        
 ##########################################################
 
+rule calculate_snp_density:
+    input:
+        raw_vcf = WORKING_DIR + "filtered/{sample}.selected.chr.biallelic.qc1.qc2.maf.miss.het.vcf.gz",
+        filtered_vcf = RES_DIR + "filtered/{sample}_filtered_imputed_maf.vcf.gz" if config["impute_genotypes"] == "yes" else RES_DIR + "filtered/{sample}_filtered_not_imputed.vcf.gz"
+    output:
+        raw_density = RES_DIR + "tables/table01_snp_density/{sample}.snp_density.raw.tsv",
+        filtered_density = RES_DIR + "tables/table01_snp_density/{sample}.snp_density.filtered.tsv"
+    message:
+        "Calculating SNP density in {wildcards.sample} VCF raw and filtered files"
+    params:
+        bin_size = config["snp_density_bin_size"],
+        raw_out_prefix = RES_DIR + "tables/table01_snp_density/{sample}.snp_density.raw",
+        filtered_out_prefix = RES_DIR + "tables/table01_snp_density/{sample}.snp_density.filtered"
+    threads: 1        
+    shell:
+        "mkdir -p {RES_DIR}/tables/table01_snp_density/; "
+        "vcftools --gzvcf {input.raw_vcf} --SNPdensity {params.bin_size} --out {params.raw_out_prefix};"
+        "vcftools --gzvcf {input.filtered_vcf} --SNPdensity {params.bin_size} --out {params.filtered_out_prefix};"
+        "mv {params.raw_out_prefix}.snpden {output.raw_density};"
+        "mv {params.filtered_out_prefix}.snpden {output.filtered_density};"

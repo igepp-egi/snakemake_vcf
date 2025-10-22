@@ -54,6 +54,8 @@ beagle:
   memory: "4G" # memory for Beagle (e.g. 4G, 8G, 16G, etc.)
   impute: true # if true, Beagle will be used to impute missing genotypes
 
+# SNP density calculation
+snp_density_bin_size: 1000000  # bin size in base pairs (e.g. 1000000 for 1Mb bins)
 
 
 
