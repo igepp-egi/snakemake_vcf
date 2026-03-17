@@ -157,7 +157,7 @@ rule count_snps_after_step8_filter_on_heterozygosity_excess:
 
 rule count_snps_after_step9_imputation: 
     input:
-        vcf = RES_DIR + "filtered/{sample}_filtered_imputed_maf.vcf.gz"
+        vcf = RES_DIR + "filtered/{sample}_filtered_imputed.vcf.gz"
     output:
         n_snps = WORKING_DIR + "counts/{sample}.step9.snp.csv"
     message:
